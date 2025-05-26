@@ -1,162 +1,4 @@
-// api/main.js - Eva Enhanced com verificação de disponibilidade + EMAIL AUTOMÁTICO
-const nodemailer = require('nodemailer'); // NOVO: Para envio de emails
-
-// NOVO: Configuração SMTP para emails automáticos
-const emailTransporter = nodemailer.createTransporter({
-  service: 'gmail',
-  auth: {
-    user: 'fluxomatika@gmail.com',
-    pass: process.env.GMAIL_APP_PASSWORD
-  }
-});
-
-// NOVO: Função para enviar email de confirmação automático
-async function sendConfirmationEmail(eventDetails) {
-  const { summary, attendee_name, attendee_email, start_time, event_link } = eventDetails;
-  
-  // Formatar data e hora em português brasileiro
-  const startDate = new Date(start_time);
-  const dateStr = startDate.toLocaleDateString('pt-BR', { 
-    weekday: 'long', 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
-  });
-  const timeStr = startDate.toLocaleTimeString('pt-BR', { 
-    hour: '2-digit', 
-    minute: '2-digit' 
-  });
-
-  // Template de email profissional
-  const emailBody = `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
-      
-      <!-- Container principal -->
-      <div style="background-color: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden;">
-        
-        <!-- Header com gradiente -->
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
-          <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 600;">✅ Reunião Confirmada!</h1>
-          <p style="color: rgba(255,255,255,0.9); margin: 12px 0 0 0; font-size: 16px;">Tudo certo, ${attendee_name}! Sua reunião está agendada.</p>
-        </div>
-
-        <!-- Conteúdo principal -->
-        <div style="padding: 35px 30px;">
-          
-          <!-- Detalhes da reunião em destaque -->
-          <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 25px; border-radius: 10px; margin-bottom: 30px; border-left: 5px solid #667eea;">
-            <h2 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 22px; display: flex; align-items: center;">
-              📋 ${summary}
-            </h2>
-            
-            <div style="display: grid; gap: 15px;">
-              <div style="display: flex; align-items: center;">
-                <span style="background-color: #667eea; color: white; padding: 8px 12px; border-radius: 6px; font-weight: 600; margin-right: 15px; min-width: 80px; text-align: center;">📅 DATA</span>
-                <span style="color: #2c3e50; font-size: 16px; font-weight: 500;">${dateStr}</span>
-              </div>
-              
-              <div style="display: flex; align-items: center;">
-                <span style="background-color: #28a745; color: white; padding: 8px 12px; border-radius: 6px; font-weight: 600; margin-right: 15px; min-width: 80px; text-align: center;">🕒 HORA</span>
-                <span style="color: #2c3e50; font-size: 16px; font-weight: 500;">${timeStr}</span>
-              </div>
-              
-              <div style="display: flex; align-items: center;">
-                <span style="background-color: #ffc107; color: #2c3e50; padding: 8px 12px; border-radius: 6px; font-weight: 600; margin-right: 15px; min-width: 80px; text-align: center;">⏱️ TEMPO</span>
-                <span style="color: #2c3e50; font-size: 16px; font-weight: 500;">30 minutos</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Próximos passos -->
-          <div style="background-color: #e8f5e8; padding: 25px; border-radius: 10px; border: 2px solid #28a745; margin-bottom: 25px;">
-            <h3 style="color: #28a745; margin: 0 0 15px 0; font-size: 18px; display: flex; align-items: center;">
-              💡 Próximos Passos
-            </h3>
-            <ul style="color: #2c3e50; margin: 0; padding-left: 0; list-style: none; line-height: 1.8;">
-              <li style="margin-bottom: 8px; display: flex; align-items: flex-start;">
-                <span style="color: #28a745; margin-right: 10px; font-weight: bold;">✓</span>
-                <span>Você receberá um lembrete automático 15 minutos antes</span>
-              </li>
-              <li style="margin-bottom: 8px; display: flex; align-items: flex-start;">
-                <span style="color: #28a745; margin-right: 10px; font-weight: bold;">✓</span>
-                <span>Tenha em mãos documentos ou informações relevantes</span>
-              </li>
-              <li style="margin-bottom: 0; display: flex; align-items: flex-start;">
-                <span style="color: #28a745; margin-right: 10px; font-weight: bold;">✓</span>
-                <span>Para reagendar, entre em contato conosco com antecedência</span>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Informações de contato -->
-          <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 25px; border-radius: 10px; text-align: center; margin-bottom: 25px;">
-            <h3 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 18px;">📞 Precisa de Ajuda?</h3>
-            <p style="color: #5a6c7d; margin: 0 0 15px 0; line-height: 1.5;">
-              Entre em contato conosco a qualquer momento:
-            </p>
-            <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
-              <a href="mailto:fluxomatika@gmail.com" style="background-color: #667eea; color: white; text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center;">
-                📧 Email
-              </a>
-              <a href="https://wa.me/5564999999999" style="background-color: #25d366; color: white; text-decoration: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; display: inline-flex; align-items: center;">
-                💬 WhatsApp
-              </a>
-            </div>
-          </div>
-
-          <!-- Call to action -->
-          <div style="text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; color: white;">
-            <h3 style="margin: 0 0 10px 0; font-size: 20px;">🚀 Estamos Ansiosos!</h3>
-            <p style="margin: 0; font-size: 16px; opacity: 0.9;">
-              Obrigado pela confiança. Até breve, ${attendee_name}!
-            </p>
-          </div>
-
-        </div>
-
-        <!-- Footer -->
-        <div style="background-color: #f8f9fa; padding: 25px 30px; text-align: center; border-top: 1px solid #e9ecef;">
-          <p style="color: #6c757d; margin: 0; font-size: 14px; line-height: 1.5;">
-            Agendamento realizado via <strong style="color: #667eea;">EVA - Assistente Inteligente</strong><br>
-            Este é um email automático. Para cancelar ou reagendar, entre em contato conosco.
-          </p>
-        </div>
-
-      </div>
-    </div>
-  `;
-
-  // Configurações do email
-  const mailOptions = {
-    from: '"🤖 Eva Assistente" <fluxomatika@gmail.com>',
-    to: attendee_email,
-    subject: `✅ Reunião Confirmada - ${summary} - ${dateStr}`,
-    html: emailBody,
-    headers: {
-      'X-Priority': '3',
-      'X-MSMail-Priority': 'Normal',
-      'X-Mailer': 'EVA Assistant v2.0'
-    }
-  };
-
-  try {
-    const info = await emailTransporter.sendMail(mailOptions);
-    console.log('Email enviado com sucesso:', info.messageId);
-    return {
-      success: true,
-      message: 'Email de confirmação enviado com sucesso',
-      messageId: info.messageId
-    };
-  } catch (error) {
-    console.error('Erro ao enviar email:', error);
-    return {
-      success: false,
-      message: 'Erro ao enviar email de confirmação',
-      error: error.message
-    };
-  }
-}
-
+// api/main.js - Eva Enhanced com verificação de disponibilidade + Email Automático
 module.exports = async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -306,47 +148,6 @@ async function handleCheckAvailability(req, res) {
 
     return res.status(200).json({
       status: 'success',
-      action: 'create_calendar_event',
-      message: 'Evento criado com sucesso! Email de confirmação enviado.',
-      data: {
-        event_id: data.id,
-        event_link: data.htmlLink,
-        hangout_link: data.hangoutLink,
-        calendar_event: data
-      },
-      email_status: {
-        sent: emailResult.success,
-        message: emailResult.message,
-        message_id: emailResult.messageId || null
-      },
-      booking_info: {
-        summary: summary,
-        attendee_email: attendee_email,
-        attendee_name: attendee_name,
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
-        timezone: 'America/Sao_Paulo'
-      },
-      notification_data: {
-        client_name: attendee_name || attendee_email.split('@')[0],
-        client_email: attendee_email,
-        meeting_date: startDate.toLocaleDateString('pt-BR'),
-        meeting_time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        meeting_link: data.htmlLink,
-        hangout_link: data.hangoutLink
-      }
-    });
-
-  } catch (error) {
-    console.error('Create Event Error:', error);
-    return res.status(500).json({
-      status: 'error',
-      action: 'create_calendar_event',
-      message: 'Erro ao criar evento no Google Calendar',
-      error: error.message
-    });
-  }
-}
       action: 'check_availability',
       data: {
         requested_time: {
@@ -556,7 +357,128 @@ async function createJWT(serviceAccount) {
   return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
-// TOOL 4: Create Google Calendar Event (with automatic availability check + EMAIL AUTOMÁTICO)
+// FUNÇÃO DE EMAIL AUTOMÁTICO
+async function sendConfirmationEmail(emailData) {
+  try {
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY não configurado');
+    }
+
+    const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
+      <!-- Header -->
+      <div style="background: #2563eb; color: white; padding: 30px 20px; text-align: center;">
+        <h1 style="margin: 0; font-size: 28px;">✅ Reunião Confirmada</h1>
+        <p style="margin: 10px 0 0 0; opacity: 0.9;">Fluxomatika - Automação Inteligente</p>
+      </div>
+      
+      <!-- Content -->
+      <div style="padding: 30px 20px;">
+        <p style="font-size: 18px; color: #1f2937; margin-bottom: 10px;">
+          Olá <strong>${emailData.clientName}</strong>,
+        </p>
+        
+        <p style="color: #4b5563; line-height: 1.6; margin-bottom: 30px;">
+          Sua reunião foi confirmada com sucesso! Estamos ansiosos para conversar com você.
+        </p>
+        
+        <!-- Meeting Details Box -->
+        <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 25px; margin: 25px 0;">
+          <h2 style="color: #1e40af; margin: 0 0 20px 0; font-size: 20px;">📅 Detalhes da Reunião</h2>
+          
+          <div style="margin: 15px 0;">
+            <strong style="color: #374151;">Assunto:</strong>
+            <span style="color: #6b7280; margin-left: 10px;">${emailData.summary}</span>
+          </div>
+          
+          <div style="margin: 15px 0;">
+            <strong style="color: #374151;">Data:</strong>
+            <span style="color: #6b7280; margin-left: 10px;">${emailData.date}</span>
+          </div>
+          
+          <div style="margin: 15px 0;">
+            <strong style="color: #374151;">Horário:</strong>
+            <span style="color: #6b7280; margin-left: 10px;">${emailData.time} (Horário de Brasília)</span>
+          </div>
+          
+          ${emailData.hangoutLink ? `
+          <div style="margin: 20px 0;">
+            <a href="${emailData.hangoutLink}" 
+               style="display: inline-block; background: #10b981; color: white; padding: 12px 24px; 
+                      text-decoration: none; border-radius: 8px; font-weight: bold; margin: 5px 0;">
+              🎥 Entrar no Google Meet
+            </a>
+          </div>
+          ` : ''}
+          
+          <div style="margin: 20px 0;">
+            <a href="${emailData.meetingLink}" 
+               style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; 
+                      text-decoration: none; border-radius: 8px; font-weight: bold;">
+              📅 Ver no Google Calendar
+            </a>
+          </div>
+        </div>
+        
+        <!-- Next Steps -->
+        <div style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 25px 0;">
+          <h3 style="color: #92400e; margin: 0 0 15px 0; font-size: 16px;">📝 Próximos Passos</h3>
+          <ul style="color: #78350f; margin: 0; padding-left: 20px; line-height: 1.8;">
+            <li>Você receberá um lembrete automático 1 hora antes da reunião</li>
+            <li>Acesse o link do Google Meet na hora marcada</li>
+            <li>Prepare suas dúvidas e objetivos para a conversa</li>
+            <li>Em caso de dúvidas, responda este email</li>
+          </ul>
+        </div>
+        
+        <p style="color: #6b7280; line-height: 1.6; margin-top: 30px;">
+          Estamos ansiosos para conversar sobre como podemos ajudar sua empresa!
+        </p>
+      </div>
+      
+      <!-- Footer -->
+      <div style="background: #f9fafb; border-top: 1px solid #e5e7eb; padding: 20px; text-align: center;">
+        <p style="color: #6b7280; margin: 0; font-size: 14px;">
+          Atenciosamente,<br>
+          <strong style="color: #374151;">Equipe Fluxomatika</strong>
+        </p>
+        <p style="color: #9ca3af; margin: 10px 0 0 0; font-size: 12px;">
+          Este email foi enviado automaticamente pela Eva, nossa assistente virtual.
+        </p>
+      </div>
+    </div>
+    `;
+
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'Eva <onboarding@resend.dev>',
+        to: emailData.to,
+        subject: `Reunião confirmada - ${emailData.date} às ${emailData.time}`,
+        html: emailHtml
+      })
+    });
+
+    const emailResult = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(`Resend API Error: ${response.status} - ${JSON.stringify(emailResult)}`);
+    }
+
+    console.log('✅ Email enviado com sucesso:', emailResult);
+    return { success: true, data: emailResult };
+
+  } catch (error) {
+    console.error('❌ Erro ao enviar email:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// TOOL 4: Create Google Calendar Event (with automatic availability check + EMAIL)
 async function handleCreateEvent(req, res) {
   try {
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
@@ -691,18 +613,70 @@ async function handleCreateEvent(req, res) {
       throw new Error(`Google Calendar Error: ${response.status} - ${JSON.stringify(data)}`);
     }
 
-    // NOVO: ENVIAR EMAIL AUTOMÁTICO APÓS SUCESSO DO EVENTO
-    console.log('Evento criado com sucesso, enviando email de confirmação...');
+    // ENVIAR EMAIL DE CONFIRMAÇÃO
+    let emailSent = false;
+    let emailError = null;
     
-    const emailResult = await sendConfirmationEmail({
-      summary,
-      attendee_name: attendee_name || attendee_email.split('@')[0],
-      attendee_email,
-      start_time: startDate.toISOString(),
-      event_link: data.htmlLink
-    });
-
-    console.log('Resultado do email:', emailResult);
+    try {
+      const emailResult = await sendConfirmationEmail({
+        to: attendee_email,
+        clientName: attendee_name || attendee_email.split('@')[0],
+        summary: summary,
+        date: startDate.toLocaleDateString('pt-BR'),
+        time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        meetingLink: data.htmlLink,
+        hangoutLink: data.hangoutLink
+      });
+      
+      emailSent = emailResult.success;
+      if (!emailResult.success) {
+        emailError = emailResult.error;
+      }
+      
+    } catch (error) {
+      console.error('Erro crítico no email:', error);
+      emailError = error.message;
+    }
 
     return res.status(200).json({
       status: 'success',
+      action: 'create_calendar_event',
+      message: emailSent ? 
+        'Evento criado e email de confirmação enviado com sucesso!' :
+        'Evento criado com sucesso! (Email teve problema, mas agendamento foi confirmado)',
+      data: {
+        event_id: data.id,
+        event_link: data.htmlLink,
+        hangout_link: data.hangoutLink,
+        calendar_event: data,
+        email_sent: emailSent,
+        email_error: emailError
+      },
+      booking_info: {
+        summary,
+        attendee_email,
+        attendee_name,
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
+        timezone: 'America/Sao_Paulo'
+      },
+      notification_data: {
+        client_name: attendee_name || attendee_email.split('@')[0],
+        client_email: attendee_email,
+        meeting_date: startDate.toLocaleDateString('pt-BR'),
+        meeting_time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        meeting_link: data.htmlLink,
+        hangout_link: data.hangoutLink
+      }
+    });
+
+  } catch (error) {
+    console.error('Create Event Error:', error);
+    return res.status(500).json({
+      status: 'error',
+      action: 'create_calendar_event',
+      message: 'Erro ao criar evento no Google Calendar',
+      error: error.message
+    });
+  }
+}
