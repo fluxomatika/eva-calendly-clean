@@ -115,7 +115,7 @@ async function handleCheckAvailability(req, res) {
     // Get access token
     const accessToken = await getGoogleAccessToken();
     
-    // Use specific calendar ID
+    // Use specific calendar ID for consistency
     const calendarId = 'fluxomatika@gmail.com';
     
     // Check for existing events using freebusy API
@@ -355,8 +355,17 @@ async function handleCreateEvent(req, res) {
     // Get access token
     const accessToken = await getGoogleAccessToken();
     
-    // Calculate end time if not provided (default: +30 minutes)
-    const startDate = new Date(start_time);
+    // Calculate end time if not provided (default: +30 minutes)  
+    // Fix: Ensure start_time is interpreted as Brazil timezone
+    let startDate = new Date(start_time);
+    
+    // If no timezone info in start_time, assume Brazil timezone
+    if (!start_time.includes('T') || (!start_time.includes('+') && !start_time.includes('Z') && !start_time.includes('-', 10))) {
+      // Parse as Brazil time by adding timezone info
+      const brasilTime = start_time + (start_time.includes('T') ? '-03:00' : 'T00:00:00-03:00');
+      startDate = new Date(brasilTime);
+    }
+    
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
 
     // Create event payload (without attendees to avoid Service Account restrictions)
