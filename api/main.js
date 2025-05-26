@@ -206,15 +206,26 @@ async function handleSuggestAlternatives(req, res) {
 
     // Check availability for multiple time slots on the same day
     const suggestions = [];
-    const workingHours = [9, 10, 11, 14, 15, 16, 17]; // 9h-12h, 14h-18h
+    const workingHours = [9, 10, 11, 12, 13, 14, 15, 16, 17]; // Extended hours for better coverage
+    
+    console.log(`Checking availability for date: ${baseDate.toISOString().split('T')[0]}`);
     
     for (const hour of workingHours) {
       const testDate = new Date(baseDate);
       testDate.setHours(hour, 0, 0, 0);
-      const testEndDate = new Date(testDate.getTime() + durationMinutes * 60 * 1000);
+      
+      // Ensure we're working with Brazil timezone
+      const testDateBrazil = new Date(testDate.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+      const testEndDate = new Date(testDateBrazil.getTime() + durationMinutes * 60 * 1000);
       
       // Skip if it's in the past
-      if (testDate < new Date()) continue;
+      const now = new Date();
+      if (testDateBrazil < now) {
+        console.log(`Skipping ${hour}h - in the past`);
+        continue;
+      }
+
+      console.log(`Testing availability for ${hour}h: ${testDateBrazil.toISOString()}`);
 
       // Check availability for this time slot
       const freeBusyResponse = await fetch(
@@ -226,7 +237,7 @@ async function handleSuggestAlternatives(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            timeMin: testDate.toISOString(),
+            timeMin: testDateBrazil.toISOString(),
             timeMax: testEndDate.toISOString(),
             items: [{ id: calendarId }]
           })
@@ -236,18 +247,24 @@ async function handleSuggestAlternatives(req, res) {
       const freeBusyData = await freeBusyResponse.json();
       const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
       
+      console.log(`${hour}h - Busy times found:`, busyTimes.length);
+      
       if (busyTimes.length === 0) {
         suggestions.push({
-          start_time: testDate.toISOString().slice(0, 19), // Remove timezone part
+          start_time: testDateBrazil.toISOString().slice(0, 19), // Remove timezone part for consistency
           end_time: testEndDate.toISOString().slice(0, 19),
-          start_time_br: testDate.toLocaleString('pt-BR', { 
+          start_time_br: testDateBrazil.toLocaleString('pt-BR', { 
             timeZone: 'America/Sao_Paulo',
             hour: '2-digit',
             minute: '2-digit'
           }),
-          date_br: testDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-          available: true
+          date_br: testDateBrazil.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+          available: true,
+          hour: hour
         });
+        console.log(`${hour}h - AVAILABLE`);
+      } else {
+        console.log(`${hour}h - BUSY`);
       }
     }
 
