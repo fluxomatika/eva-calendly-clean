@@ -1,4 +1,4 @@
-// api/main.js - Eva com Google Calendar Service Account
+// api/main.js - Eva Enhanced com verificação de disponibilidade
 module.exports = async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -21,8 +21,11 @@ module.exports = async (req, res) => {
       case 'get_current_date':
         return handleCurrentDate(req, res);
         
-      case 'set_timezone':
-        return handleTimezone(req, res);
+      case 'check_availability':
+        return handleCheckAvailability(req, res);
+        
+      case 'suggest_alternative_times':
+        return handleSuggestAlternatives(req, res);
         
       case 'create_calendar_event':
         return handleCreateEvent(req, res);
@@ -30,9 +33,9 @@ module.exports = async (req, res) => {
       default:
         return res.status(200).json({
           status: 'success',
-          message: 'Eva + Google Calendar (Service Account) funcionando!',
+          message: 'Eva Enhanced API funcionando!',
           timestamp: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-          actions: ['get_current_date', 'set_timezone', 'create_calendar_event']
+          actions: ['get_current_date', 'check_availability', 'suggest_alternative_times', 'create_calendar_event']
         });
     }
     
@@ -86,38 +89,188 @@ async function handleCurrentDate(req, res) {
   }
 }
 
-// TOOL 2: Set Timezone Fix
-async function handleTimezone(req, res) {
+// TOOL 2: Check Availability
+async function handleCheckAvailability(req, res) {
   try {
-    const timezone = req.method === 'GET' ? 
-      req.query.timezone || 'America/Sao_Paulo' : 
-      req.body?.timezone || 'America/Sao_Paulo';
+    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+      throw new Error('Google Service Account não configurado');
+    }
+
+    // Get parameters
+    const { start_time, duration } = req.method === 'GET' ? req.query : req.body;
     
-    // Force Brazil timezone
-    const fixedTimezone = 'America/Sao_Paulo';
-    const now = new Date();
+    if (!start_time) {
+      return res.status(400).json({
+        status: 'error',
+        action: 'check_availability',
+        message: 'Parâmetro obrigatório: start_time (formato YYYY-MM-DDTHH:MM:00)'
+      });
+    }
+
+    // Calculate end time (default 1 hour if duration not provided)
+    const startDate = new Date(start_time);
+    const durationMinutes = duration ? parseInt(duration) : 60;
+    const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
+
+    // Get access token
+    const accessToken = await getGoogleAccessToken();
     
-    const response = {
-      status: 'success',
-      action: 'set_timezone',
-      data: {
-        requested_timezone: timezone,
-        fixed_timezone: fixedTimezone,
-        current_time: now.toLocaleString('pt-BR', { timeZone: fixedTimezone }),
-        message: 'Timezone definido para horário de Brasília',
-        iso_time: now.toISOString()
+    // Use specific calendar ID
+    const calendarId = 'fluxomatika@gmail.com';
+    
+    // Check for existing events using freebusy API
+    const freeBusyResponse = await fetch(
+      'https://www.googleapis.com/calendar/v3/freeBusy',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          timeMin: startDate.toISOString(),
+          timeMax: endDate.toISOString(),
+          items: [{ id: calendarId }]
+        })
       }
-    };
-    
-    console.log('Timezone Fix Response:', response);
-    return res.status(200).json(response);
-    
+    );
+
+    const freeBusyData = await freeBusyResponse.json();
+    console.log('FreeBusy Response:', freeBusyData);
+
+    if (!freeBusyResponse.ok) {
+      throw new Error(`FreeBusy API Error: ${freeBusyResponse.status} - ${JSON.stringify(freeBusyData)}`);
+    }
+
+    // Check if time slot is busy
+    const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
+    const isAvailable = busyTimes.length === 0;
+
+    return res.status(200).json({
+      status: 'success',
+      action: 'check_availability',
+      data: {
+        requested_time: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString(),
+          duration_minutes: durationMinutes
+        },
+        available: isAvailable,
+        conflicting_events: busyTimes.map(busy => ({
+          start: busy.start,
+          end: busy.end,
+          start_br: new Date(busy.start).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+          end_br: new Date(busy.end).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+        })),
+        message: isAvailable ? 
+          'Horário disponível para agendamento' : 
+          `Horário ocupado. ${busyTimes.length} conflito(s) encontrado(s)`
+      }
+    });
+
   } catch (error) {
-    console.error('Timezone Error:', error);
+    console.error('Check Availability Error:', error);
     return res.status(500).json({
       status: 'error',
-      action: 'set_timezone',
-      message: 'Erro ao configurar timezone',
+      action: 'check_availability',
+      message: 'Erro ao verificar disponibilidade',
+      error: error.message
+    });
+  }
+}
+
+// TOOL 3: Suggest Alternative Times
+async function handleSuggestAlternatives(req, res) {
+  try {
+    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+      throw new Error('Google Service Account não configurado');
+    }
+
+    // Get parameters
+    const { start_time, duration, date } = req.method === 'GET' ? req.query : req.body;
+    
+    if (!start_time && !date) {
+      return res.status(400).json({
+        status: 'error',
+        action: 'suggest_alternative_times',
+        message: 'Parâmetro obrigatório: start_time ou date'
+      });
+    }
+
+    const durationMinutes = duration ? parseInt(duration) : 60;
+    const baseDate = start_time ? new Date(start_time) : new Date(date);
+    
+    // Get access token
+    const accessToken = await getGoogleAccessToken();
+    const calendarId = 'fluxomatika@gmail.com';
+
+    // Check availability for multiple time slots on the same day
+    const suggestions = [];
+    const workingHours = [9, 10, 11, 14, 15, 16, 17]; // 9h-12h, 14h-18h
+    
+    for (const hour of workingHours) {
+      const testDate = new Date(baseDate);
+      testDate.setHours(hour, 0, 0, 0);
+      const testEndDate = new Date(testDate.getTime() + durationMinutes * 60 * 1000);
+      
+      // Skip if it's in the past
+      if (testDate < new Date()) continue;
+
+      // Check availability for this time slot
+      const freeBusyResponse = await fetch(
+        'https://www.googleapis.com/calendar/v3/freeBusy',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            timeMin: testDate.toISOString(),
+            timeMax: testEndDate.toISOString(),
+            items: [{ id: calendarId }]
+          })
+        }
+      );
+
+      const freeBusyData = await freeBusyResponse.json();
+      const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
+      
+      if (busyTimes.length === 0) {
+        suggestions.push({
+          start_time: testDate.toISOString().slice(0, 19), // Remove timezone part
+          end_time: testEndDate.toISOString().slice(0, 19),
+          start_time_br: testDate.toLocaleString('pt-BR', { 
+            timeZone: 'America/Sao_Paulo',
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          date_br: testDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+          available: true
+        });
+      }
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      action: 'suggest_alternative_times',
+      data: {
+        requested_date: baseDate.toISOString().split('T')[0],
+        duration_minutes: durationMinutes,
+        available_slots: suggestions,
+        total_suggestions: suggestions.length,
+        message: suggestions.length > 0 ? 
+          `${suggestions.length} horário(s) disponível(is) encontrado(s)` :
+          'Nenhum horário disponível encontrado para este dia'
+      }
+    });
+
+  } catch (error) {
+    console.error('Suggest Alternatives Error:', error);
+    return res.status(500).json({
+      status: 'error',
+      action: 'suggest_alternative_times',
+      message: 'Erro ao sugerir horários alternativos',
       error: error.message
     });
   }
@@ -128,29 +281,6 @@ async function getGoogleAccessToken() {
   try {
     const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
     
-    // Create JWT for Google OAuth
-    const header = {
-      alg: 'RS256',
-      typ: 'JWT'
-    };
-    
-    const now = Math.floor(Date.now() / 1000);
-    const payload = {
-      iss: serviceAccount.client_email,
-      scope: 'https://www.googleapis.com/auth/calendar',
-      aud: 'https://oauth2.googleapis.com/token',
-      exp: now + 3600,
-      iat: now
-    };
-    
-    // Base64 encode header and payload
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-    
-    // Create signature (simplified - for production use proper JWT library)
-    const signatureInput = `${encodedHeader}.${encodedPayload}`;
-    
-    // For now, we'll use a simpler approach with fetch to Google's token endpoint
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: {
@@ -176,7 +306,7 @@ async function getGoogleAccessToken() {
   }
 }
 
-// Helper: Create JWT (simplified version)
+// Helper: Create JWT
 async function createJWT(serviceAccount) {
   const header = {
     alg: 'RS256',
@@ -195,7 +325,6 @@ async function createJWT(serviceAccount) {
   const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
   
-  // Import crypto for signing
   const crypto = require('crypto');
   const sign = crypto.createSign('RSA-SHA256');
   sign.update(`${encodedHeader}.${encodedPayload}`);
@@ -204,14 +333,14 @@ async function createJWT(serviceAccount) {
   return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
-// TOOL 3: Create Google Calendar Event with Service Account
+// TOOL 4: Create Google Calendar Event (existing function - unchanged)
 async function handleCreateEvent(req, res) {
   try {
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
       throw new Error('Google Service Account não configurado');
     }
 
-    // Get parameters (preferably from POST body)
+    // Get parameters (preferably from GET query)
     const { summary, description, start_time, end_time, attendee_email, attendee_name } = 
       req.method === 'GET' ? req.query : req.body;
     
@@ -227,13 +356,7 @@ async function handleCreateEvent(req, res) {
     const accessToken = await getGoogleAccessToken();
     
     // Calculate end time if not provided (default: +1 hour)
-    // Fix timezone: convert input to Brazil timezone properly
     const startDate = new Date(start_time);
-    // If no timezone specified, assume Brazil timezone
-    if (!start_time.includes('T') || (!start_time.includes('+') && !start_time.includes('Z'))) {
-      // Add Brazil timezone offset
-      startDate.setHours(startDate.getHours() + 3);
-    }
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 60 * 60 * 1000);
 
     // Create event payload (without attendees to avoid Service Account restrictions)
@@ -259,8 +382,8 @@ async function handleCreateEvent(req, res) {
 
     console.log('Creating Calendar Event:', eventPayload);
 
-    // Use specific calendar ID for fluxomatika calendar
-    const calendarId = 'fluxomatika@gmail.com'; // Your main calendar email
+    // Use specific calendar ID
+    const calendarId = 'fluxomatika@gmail.com';
     
     // Google Calendar API call with Service Account
     const response = await fetch(
@@ -300,7 +423,6 @@ async function handleCreateEvent(req, res) {
         end_time: endDate.toISOString(),
         timezone: 'America/Sao_Paulo'
       },
-      // Dados para automação de notificação
       notification_data: {
         client_name: attendee_name || attendee_email.split('@')[0],
         client_email: attendee_email,
