@@ -505,12 +505,23 @@ async function handleCreateEvent(req, res) {
     // Fix: Ensure start_time is interpreted as Brazil timezone
     let startDate = new Date(start_time);
     
+    // DEBUG: Log para investigar o problema de timezone
+    console.log('=== DEBUG TIMEZONE EMAIL ===');
+    console.log('start_time recebido:', start_time);
+    console.log('startDate inicial:', startDate.toISOString());
+    console.log('startDate hora UTC:', startDate.getUTCHours());
+    
     // If no timezone info in start_time, assume Brazil timezone
     if (!start_time.includes('T') || (!start_time.includes('+') && !start_time.includes('Z') && !start_time.includes('-', 10))) {
       // Parse as Brazil time by adding timezone info
       const brasilTime = start_time + (start_time.includes('T') ? '-03:00' : 'T00:00:00-03:00');
       startDate = new Date(brasilTime);
+      console.log('startDate após correção:', startDate.toISOString());
     }
+    
+    console.log('startDate final:', startDate.toISOString());
+    console.log('startDate hora Brasil:', startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
+    console.log('========================');
     
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
 
@@ -582,6 +593,14 @@ async function handleCreateEvent(req, res) {
         dateTime: endDate.toISOString(),
         timeZone: 'America/Sao_Paulo'
       },
+      conferenceData: {
+        createRequest: {
+          requestId: `eva-${Date.now()}`, // Unique ID for each meeting
+          conferenceSolutionKey: {
+            type: 'hangoutsMeet'
+          }
+        }
+      },
       reminders: {
         useDefault: false,
         overrides: [
@@ -595,7 +614,7 @@ async function handleCreateEvent(req, res) {
     
     // Google Calendar API call with Service Account
     const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?conferenceDataVersion=1`,
       {
         method: 'POST',
         headers: {
@@ -622,8 +641,12 @@ async function handleCreateEvent(req, res) {
         to: attendee_email,
         clientName: attendee_name || attendee_email.split('@')[0],
         summary: summary,
-        date: startDate.toLocaleDateString('pt-BR'),
-        time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        date: startDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+        time: startDate.toLocaleTimeString('pt-BR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          timeZone: 'America/Sao_Paulo'
+        }),
         meetingLink: data.htmlLink,
         hangoutLink: data.hangoutLink
       });
