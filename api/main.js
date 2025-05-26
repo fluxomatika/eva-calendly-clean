@@ -333,7 +333,7 @@ async function createJWT(serviceAccount) {
   return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
-// TOOL 4: Create Google Calendar Event (existing function - unchanged)
+// TOOL 4: Create Google Calendar Event (with automatic availability check)
 async function handleCreateEvent(req, res) {
   try {
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
@@ -354,6 +354,7 @@ async function handleCreateEvent(req, res) {
 
     // Get access token
     const accessToken = await getGoogleAccessToken();
+    const calendarId = 'fluxomatika@gmail.com';
     
     // Calculate end time if not provided (default: +30 minutes)  
     // Fix: Ensure start_time is interpreted as Brazil timezone
@@ -367,6 +368,54 @@ async function handleCreateEvent(req, res) {
     }
     
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
+
+    // AUTOMATIC AVAILABILITY CHECK BEFORE CREATING EVENT
+    console.log('Checking availability before creating event...');
+    
+    const freeBusyResponse = await fetch(
+      'https://www.googleapis.com/calendar/v3/freeBusy',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          timeMin: startDate.toISOString(),
+          timeMax: endDate.toISOString(),
+          items: [{ id: calendarId }]
+        })
+      }
+    );
+
+    const freeBusyData = await freeBusyResponse.json();
+    const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
+    
+    // If time slot is busy, return conflict error
+    if (busyTimes.length > 0) {
+      console.log('Time slot is busy, returning conflict error');
+      return res.status(409).json({
+        status: 'conflict',
+        action: 'create_calendar_event',
+        message: 'Horário já ocupado. Escolha outro horário.',
+        data: {
+          requested_time: {
+            start: startDate.toISOString(),
+            end: endDate.toISOString(),
+            start_br: startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+            end_br: endDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+          },
+          conflicting_events: busyTimes.map(busy => ({
+            start: busy.start,
+            end: busy.end,
+            start_br: new Date(busy.start).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+            end_br: new Date(busy.end).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+          }))
+        }
+      });
+    }
+
+    console.log('Time slot is available, proceeding with event creation...');
 
     // Create event payload (without attendees to avoid Service Account restrictions)
     const eventPayload = {
@@ -390,9 +439,6 @@ async function handleCreateEvent(req, res) {
     };
 
     console.log('Creating Calendar Event:', eventPayload);
-
-    // Use specific calendar ID
-    const calendarId = 'fluxomatika@gmail.com';
     
     // Google Calendar API call with Service Account
     const response = await fetch(
