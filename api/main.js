@@ -1,4 +1,4 @@
-// api/main.js - Eva com Google Calendar API
+// api/main.js - Eva com Google Calendar Service Account
 module.exports = async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
       default:
         return res.status(200).json({
           status: 'success',
-          message: 'Eva + Google Calendar API funcionando!',
+          message: 'Eva + Google Calendar (Service Account) funcionando!',
           timestamp: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
           actions: ['get_current_date', 'set_timezone', 'create_calendar_event']
         });
@@ -123,12 +123,92 @@ async function handleTimezone(req, res) {
   }
 }
 
-// TOOL 3: Create Google Calendar Event
+// Helper: Get Google Access Token using Service Account
+async function getGoogleAccessToken() {
+  try {
+    const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+    
+    // Create JWT for Google OAuth
+    const header = {
+      alg: 'RS256',
+      typ: 'JWT'
+    };
+    
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      iss: serviceAccount.client_email,
+      scope: 'https://www.googleapis.com/auth/calendar',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now + 3600,
+      iat: now
+    };
+    
+    // Base64 encode header and payload
+    const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    
+    // Create signature (simplified - for production use proper JWT library)
+    const signatureInput = `${encodedHeader}.${encodedPayload}`;
+    
+    // For now, we'll use a simpler approach with fetch to Google's token endpoint
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: await createJWT(serviceAccount)
+      })
+    });
+    
+    if (!tokenResponse.ok) {
+      const error = await tokenResponse.json();
+      throw new Error(`Token Error: ${JSON.stringify(error)}`);
+    }
+    
+    const tokenData = await tokenResponse.json();
+    return tokenData.access_token;
+    
+  } catch (error) {
+    console.error('Access Token Error:', error);
+    throw error;
+  }
+}
+
+// Helper: Create JWT (simplified version)
+async function createJWT(serviceAccount) {
+  const header = {
+    alg: 'RS256',
+    typ: 'JWT'
+  };
+  
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: serviceAccount.client_email,
+    scope: 'https://www.googleapis.com/auth/calendar',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now
+  };
+  
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  
+  // Import crypto for signing
+  const crypto = require('crypto');
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(`${encodedHeader}.${encodedPayload}`);
+  const signature = sign.sign(serviceAccount.private_key, 'base64url');
+  
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
+
+// TOOL 3: Create Google Calendar Event with Service Account
 async function handleCreateEvent(req, res) {
   try {
-    const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) {
-      throw new Error('Google API Key não configurada');
+    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+      throw new Error('Google Service Account não configurado');
     }
 
     // Get parameters (preferably from POST body)
@@ -143,6 +223,9 @@ async function handleCreateEvent(req, res) {
       });
     }
 
+    // Get access token
+    const accessToken = await getGoogleAccessToken();
+    
     // Calculate end time if not provided (default: +1 hour)
     const startDate = new Date(start_time);
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 60 * 60 * 1000);
@@ -150,7 +233,7 @@ async function handleCreateEvent(req, res) {
     // Create event payload
     const eventPayload = {
       summary: summary,
-      description: description || `Reunião agendada via Eva - Assistente Virtual`,
+      description: description || `Reunião agendada via Eva - Assistente Virtual da Fluxomatika`,
       start: {
         dateTime: startDate.toISOString(),
         timeZone: 'America/Sao_Paulo'
@@ -162,7 +245,8 @@ async function handleCreateEvent(req, res) {
       attendees: [
         {
           email: attendee_email,
-          displayName: attendee_name || attendee_email.split('@')[0]
+          displayName: attendee_name || attendee_email.split('@')[0],
+          responseStatus: 'needsAction'
         }
       ],
       reminders: {
@@ -179,12 +263,13 @@ async function handleCreateEvent(req, res) {
 
     console.log('Creating Calendar Event:', eventPayload);
 
-    // Google Calendar API call
+    // Google Calendar API call with Service Account
     const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?key=${apiKey}`,
+      'https://www.googleapis.com/calendar/v3/calendars/primary/events',
       {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(eventPayload)
