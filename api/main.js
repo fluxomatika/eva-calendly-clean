@@ -371,6 +371,7 @@ async function handleCreateEvent(req, res) {
 
     // AUTOMATIC AVAILABILITY CHECK BEFORE CREATING EVENT
     console.log('Checking availability before creating event...');
+    console.log(`Requested time: ${startDate.toISOString()} to ${endDate.toISOString()}`);
     
     const freeBusyResponse = await fetch(
       'https://www.googleapis.com/calendar/v3/freeBusy',
@@ -391,13 +392,19 @@ async function handleCreateEvent(req, res) {
     const freeBusyData = await freeBusyResponse.json();
     const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
     
-    // If time slot is busy, return conflict error
+    // If time slot is busy, return conflict error with detailed message
     if (busyTimes.length > 0) {
       console.log('Time slot is busy, returning conflict error');
+      console.log('Conflicting events:', busyTimes);
+      
       return res.status(409).json({
         status: 'conflict',
         action: 'create_calendar_event',
-        message: 'Horário já ocupado. Escolha outro horário.',
+        message: `Horário ${startDate.toLocaleString('pt-BR', { 
+          timeZone: 'America/Sao_Paulo',
+          hour: '2-digit',
+          minute: '2-digit'
+        })} já está ocupado. Use suggest_alternative_times para ver outras opções.`,
         data: {
           requested_time: {
             start: startDate.toISOString(),
@@ -410,7 +417,8 @@ async function handleCreateEvent(req, res) {
             end: busy.end,
             start_br: new Date(busy.start).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
             end_br: new Date(busy.end).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-          }))
+          })),
+          suggestion: "Execute suggest_alternative_times para ver horários disponíveis"
         }
       });
     }
