@@ -253,9 +253,12 @@ async function handleCreateEvent(req, res) {
 
     console.log('Creating Calendar Event:', eventPayload);
 
+    // Use specific calendar ID for fluxomatika calendar
+    const calendarId = 'fluxomatika@gmail.com'; // Your main calendar email
+    
     // Google Calendar API call with Service Account
     const response = await fetch(
-      'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
       {
         method: 'POST',
         headers: {
