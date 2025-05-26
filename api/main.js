@@ -306,6 +306,47 @@ async function handleCheckAvailability(req, res) {
 
     return res.status(200).json({
       status: 'success',
+      action: 'create_calendar_event',
+      message: 'Evento criado com sucesso! Email de confirmação enviado.',
+      data: {
+        event_id: data.id,
+        event_link: data.htmlLink,
+        hangout_link: data.hangoutLink,
+        calendar_event: data
+      },
+      email_status: {
+        sent: emailResult.success,
+        message: emailResult.message,
+        message_id: emailResult.messageId || null
+      },
+      booking_info: {
+        summary,
+        attendee_email,
+        attendee_name,
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
+        timezone: 'America/Sao_Paulo'
+      },
+      notification_data: {
+        client_name: attendee_name || attendee_email.split('@')[0],
+        client_email: attendee_email,
+        meeting_date: startDate.toLocaleDateString('pt-BR'),
+        meeting_time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        meeting_link: data.htmlLink,
+        hangout_link: data.hangoutLink
+      }
+    });
+
+  } catch (error) {
+    console.error('Create Event Error:', error);
+    return res.status(500).json({
+      status: 'error',
+      action: 'create_calendar_event',
+      message: 'Erro ao criar evento no Google Calendar',
+      error: error.message
+    });
+  }
+}
       action: 'check_availability',
       data: {
         requested_time: {
