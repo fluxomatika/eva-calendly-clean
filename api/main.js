@@ -510,16 +510,26 @@ async function handleCreateEvent(req, res) {
     console.log('startDate inicial:', startDate.toISOString());
     console.log('startDate hora UTC:', startDate.getUTCHours());
     
-    // If no timezone info in start_time, assume Brazil timezone
-    if (!start_time.includes('T') || (!start_time.includes('+') && !start_time.includes('Z') && !start_time.includes('-', 10))) {
-      // Parse as Brazil time by adding timezone info
-      const brasilTime = start_time + (start_time.includes('T') ? '-03:00' : 'T00:00:00-03:00');
-      startDate = new Date(brasilTime);
-      console.log('startDate após correção:', startDate.toISOString());
+    // CORREÇÃO DE TIMEZONE - se não tem timezone, interpretar como horário do Brasil
+    if (!start_time.includes('+') && !start_time.includes('Z') && !start_time.includes('-', 10)) {
+      // Se Eva enviou "2025-05-27T09:00:00", significa 9h no Brasil
+      // Precisamos converter para UTC: 9h Brasil = 12h UTC
+      const [datePart, timePart] = start_time.split('T');
+      const [hours, minutes, seconds] = timePart.split(':');
+      
+      // Criar data interpretando como hora do Brasil (UTC-3)
+      startDate = new Date(datePart + 'T' + timePart + '-03:00');
+      
+      console.log('Interpretado como horário Brasil (UTC-3):', startDate.toISOString());
     }
     
     console.log('startDate final:', startDate.toISOString());
     console.log('startDate hora Brasil:', startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
+    console.log('Hora que deve aparecer no email:', startDate.toLocaleTimeString('pt-BR', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      timeZone: 'America/Sao_Paulo'
+    }));
     console.log('========================');
     
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
@@ -580,7 +590,7 @@ async function handleCreateEvent(req, res) {
 
     console.log('Time slot is available, proceeding with event creation...');
 
-    // Create event payload (SEM Google Meet por enquanto)
+    // Create event payload (COM Google Meet - configuração simplificada)
     const eventPayload = {
       summary: `${summary} - ${attendee_name || attendee_email}`,
       description: `Reunião agendada via Eva - Assistente Virtual da Fluxomatika\n\nCliente: ${attendee_name || 'N/A'}\nEmail: ${attendee_email}\n\n${description || ''}`,
@@ -591,6 +601,14 @@ async function handleCreateEvent(req, res) {
       end: {
         dateTime: endDate.toISOString(),
         timeZone: 'America/Sao_Paulo'
+      },
+      conferenceData: {
+        createRequest: {
+          requestId: `meet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          conferenceSolutionKey: {
+            type: 'hangoutsMeet'
+          }
+        }
       },
       reminders: {
         useDefault: false,
@@ -603,9 +621,9 @@ async function handleCreateEvent(req, res) {
 
     console.log('Creating Calendar Event:', eventPayload);
     
-    // Google Calendar API call with Service Account (SEM conferenceDataVersion)
+    // Google Calendar API call with Service Account (COM Google Meet)
     const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?conferenceDataVersion=1`,
       {
         method: 'POST',
         headers: {
