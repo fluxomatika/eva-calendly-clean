@@ -206,28 +206,35 @@ async function handleSuggestAlternatives(req, res) {
 
     // Check availability for multiple time slots on the same day
     const suggestions = [];
-    const workingHours = [9, 10, 11, 12, 13, 14, 15, 16, 17]; // Extended hours for better coverage
+    const workingHours = [9, 10, 11, 12, 13, 14, 15, 16, 17];
     
     console.log(`Checking availability for date: ${baseDate.toISOString().split('T')[0]}`);
     
     for (const hour of workingHours) {
-      const testDate = new Date(baseDate);
-      testDate.setHours(hour, 0, 0, 0);
+      // USE SAME LOGIC AS create_calendar_event
+      const testStartTime = `${baseDate.toISOString().split('T')[0]}T${hour.toString().padStart(2, '0')}:00:00`;
       
-      // Ensure we're working with Brazil timezone
-      const testDateBrazil = new Date(testDate.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
-      const testEndDate = new Date(testDateBrazil.getTime() + durationMinutes * 60 * 1000);
+      // Apply same timezone fix as create_calendar_event
+      let testDate = new Date(testStartTime);
+      
+      // Same timezone correction logic
+      if (!testStartTime.includes('+') && !testStartTime.includes('Z') && !testStartTime.includes('-', 10)) {
+        const brasilTime = testStartTime + '-03:00';
+        testDate = new Date(brasilTime);
+      }
+      
+      const testEndDate = new Date(testDate.getTime() + durationMinutes * 60 * 1000);
       
       // Skip if it's in the past
       const now = new Date();
-      if (testDateBrazil < now) {
+      if (testDate < now) {
         console.log(`Skipping ${hour}h - in the past`);
         continue;
       }
 
-      console.log(`Testing availability for ${hour}h: ${testDateBrazil.toISOString()}`);
+      console.log(`Testing ${hour}h: ${testDate.toISOString()} to ${testEndDate.toISOString()}`);
 
-      // Check availability for this time slot
+      // Use IDENTICAL FreeBusy call as create_calendar_event
       const freeBusyResponse = await fetch(
         'https://www.googleapis.com/calendar/v3/freeBusy',
         {
@@ -237,7 +244,7 @@ async function handleSuggestAlternatives(req, res) {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            timeMin: testDateBrazil.toISOString(),
+            timeMin: testDate.toISOString(),
             timeMax: testEndDate.toISOString(),
             items: [{ id: calendarId }]
           })
@@ -248,23 +255,23 @@ async function handleSuggestAlternatives(req, res) {
       const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
       
       console.log(`${hour}h - Busy times found:`, busyTimes.length);
+      if (busyTimes.length > 0) {
+        console.log(`${hour}h - CONFLICTS:`, busyTimes);
+      }
       
+      // Only suggest if NO conflicts (same as create_calendar_event)
       if (busyTimes.length === 0) {
         suggestions.push({
-          start_time: testDateBrazil.toISOString().slice(0, 19), // Remove timezone part for consistency
-          end_time: testEndDate.toISOString().slice(0, 19),
-          start_time_br: testDateBrazil.toLocaleString('pt-BR', { 
-            timeZone: 'America/Sao_Paulo',
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          date_br: testDateBrazil.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+          start_time: testStartTime,
+          end_time: `${baseDate.toISOString().split('T')[0]}T${hour.toString().padStart(2, '0')}:30:00`,
+          start_time_br: `${hour.toString().padStart(2, '0')}:00`,
+          date_br: testDate.toLocaleDateString('pt-BR'),
           available: true,
           hour: hour
         });
-        console.log(`${hour}h - AVAILABLE`);
+        console.log(`${hour}h - AVAILABLE FOR SUGGESTION`);
       } else {
-        console.log(`${hour}h - BUSY`);
+        console.log(`${hour}h - BUSY - NOT SUGGESTING`);
       }
     }
 
