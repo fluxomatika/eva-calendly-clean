@@ -320,9 +320,9 @@ async function handleCheckAvailability(req, res) {
         message_id: emailResult.messageId || null
       },
       booking_info: {
-        summary,
-        attendee_email,
-        attendee_name,
+        summary: summary,
+        attendee_email: attendee_email,
+        attendee_name: attendee_name,
         start_time: startDate.toISOString(),
         end_time: endDate.toISOString(),
         timezone: 'America/Sao_Paulo'
