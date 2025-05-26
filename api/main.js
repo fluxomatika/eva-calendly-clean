@@ -1,4 +1,4 @@
-// api/main.js - Eva Enhanced com verificação de disponibilidade + Email Automático
+// api/main.js - Eva Enhanced FUNCIONAL (sem Google Meet por enquanto)
 module.exports = async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -478,7 +478,7 @@ async function sendConfirmationEmail(emailData) {
   }
 }
 
-// TOOL 4: Create Google Calendar Event (with automatic availability check + EMAIL)
+// TOOL 4: Create Google Calendar Event (SEM GOOGLE MEET por enquanto)
 async function handleCreateEvent(req, res) {
   try {
     if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
@@ -502,7 +502,6 @@ async function handleCreateEvent(req, res) {
     const calendarId = 'fluxomatika@gmail.com';
     
     // Calculate end time if not provided (default: +30 minutes)  
-    // Fix: Ensure start_time is interpreted as Brazil timezone
     let startDate = new Date(start_time);
     
     // DEBUG: Log para investigar o problema de timezone
@@ -581,7 +580,7 @@ async function handleCreateEvent(req, res) {
 
     console.log('Time slot is available, proceeding with event creation...');
 
-    // Create event payload (without attendees to avoid Service Account restrictions)
+    // Create event payload (SEM Google Meet por enquanto)
     const eventPayload = {
       summary: `${summary} - ${attendee_name || attendee_email}`,
       description: `Reunião agendada via Eva - Assistente Virtual da Fluxomatika\n\nCliente: ${attendee_name || 'N/A'}\nEmail: ${attendee_email}\n\n${description || ''}`,
@@ -592,14 +591,6 @@ async function handleCreateEvent(req, res) {
       end: {
         dateTime: endDate.toISOString(),
         timeZone: 'America/Sao_Paulo'
-      },
-      conferenceData: {
-        createRequest: {
-          requestId: `eva-${Date.now()}`, // Unique ID for each meeting
-          conferenceSolutionKey: {
-            type: 'hangoutsMeet'
-          }
-        }
       },
       reminders: {
         useDefault: false,
@@ -612,9 +603,9 @@ async function handleCreateEvent(req, res) {
 
     console.log('Creating Calendar Event:', eventPayload);
     
-    // Google Calendar API call with Service Account
+    // Google Calendar API call with Service Account (SEM conferenceDataVersion)
     const response = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?conferenceDataVersion=1`,
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
       {
         method: 'POST',
         headers: {
@@ -648,7 +639,7 @@ async function handleCreateEvent(req, res) {
           timeZone: 'America/Sao_Paulo'
         }),
         meetingLink: data.htmlLink,
-        hangoutLink: data.hangoutLink
+        hangoutLink: data.hangoutLink || null
       });
       
       emailSent = emailResult.success;
@@ -670,7 +661,7 @@ async function handleCreateEvent(req, res) {
       data: {
         event_id: data.id,
         event_link: data.htmlLink,
-        hangout_link: data.hangoutLink,
+        hangout_link: data.hangoutLink || null,
         calendar_event: data,
         email_sent: emailSent,
         email_error: emailError
@@ -689,7 +680,7 @@ async function handleCreateEvent(req, res) {
         meeting_date: startDate.toLocaleDateString('pt-BR'),
         meeting_time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         meeting_link: data.htmlLink,
-        hangout_link: data.hangoutLink
+        hangout_link: data.hangoutLink || null
       }
     });
 
