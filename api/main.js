@@ -107,9 +107,9 @@ async function handleCheckAvailability(req, res) {
       });
     }
 
-    // Calculate end time (default 1 hour if duration not provided)
+    // Calculate end time (default 30 minutes if duration not provided)
     const startDate = new Date(start_time);
-    const durationMinutes = duration ? parseInt(duration) : 60;
+    const durationMinutes = duration ? parseInt(duration) : 30;
     const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
 
     // Get access token
@@ -197,7 +197,7 @@ async function handleSuggestAlternatives(req, res) {
       });
     }
 
-    const durationMinutes = duration ? parseInt(duration) : 60;
+    const durationMinutes = duration ? parseInt(duration) : 30;
     const baseDate = start_time ? new Date(start_time) : new Date(date);
     
     // Get access token
@@ -355,9 +355,9 @@ async function handleCreateEvent(req, res) {
     // Get access token
     const accessToken = await getGoogleAccessToken();
     
-    // Calculate end time if not provided (default: +1 hour)
+    // Calculate end time if not provided (default: +30 minutes)
     const startDate = new Date(start_time);
-    const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 60 * 60 * 1000);
+    const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
 
     // Create event payload (without attendees to avoid Service Account restrictions)
     const eventPayload = {
