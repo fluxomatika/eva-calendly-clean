@@ -227,7 +227,13 @@ async function handleCreateEvent(req, res) {
     const accessToken = await getGoogleAccessToken();
     
     // Calculate end time if not provided (default: +1 hour)
+    // Fix timezone: convert input to Brazil timezone properly
     const startDate = new Date(start_time);
+    // If no timezone specified, assume Brazil timezone
+    if (!start_time.includes('T') || (!start_time.includes('+') && !start_time.includes('Z'))) {
+      // Add Brazil timezone offset
+      startDate.setHours(startDate.getHours() + 3);
+    }
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 60 * 60 * 1000);
 
     // Create event payload (without attendees to avoid Service Account restrictions)
