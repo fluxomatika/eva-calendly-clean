@@ -179,15 +179,30 @@ async function initiateEvaCall(leadData) {
     console.log('✅ Credenciais verificadas');
 
     // Preparar dados da chamada
-    const callPayload = {
-      agent_id: process.env.EVA_FOLLOWUP_AGENT_ID,
-      phone_number: leadData.phone,
-      context_variables: {
-        lead_name: leadData.name,
-        lead_interest: leadData.interest,
-        lead_source: leadData.source
-      }
-    };
+    // Validar e corrigir telefone
+let phoneNumber = leadData.phone;
+
+if (!phoneNumber) {
+  phoneNumber = process.env.FALLBACK_PHONE_NUMBER;
+  console.log('📞 Usando telefone fallback:', phoneNumber);
+}
+
+if (phoneNumber && !phoneNumber.startsWith('+')) {
+  phoneNumber = '+55' + phoneNumber.replace(/\D/g, '');
+}
+
+console.log('📞 Telefone final para chamada:', phoneNumber);
+
+// Preparar dados da chamada
+const callPayload = {
+  agent_id: process.env.EVA_FOLLOWUP_AGENT_ID,
+  phone_number: phoneNumber,
+  context_variables: {
+    lead_name: leadData.name,
+    lead_interest: leadData.interest,
+    lead_source: leadData.source
+  }
+};
 
     console.log('📞 Payload da chamada:', JSON.stringify(callPayload, null, 2));
 
