@@ -133,32 +133,85 @@ async function triggerEvaFollowup(leadData) {
 // FUNÇÃO: INICIAR CHAMADA EVA
 async function initiateEvaCall(leadData) {
   try {
-    console.log('📞 Iniciando chamada Eva Follow-up...');
+    console.log('📞 Iniciando chamada Eva Follow-up via ElevenLabs...');
+    console.log('Lead:', leadData.name, leadData.phone);
     
-    // AQUI VAI A INTEGRAÇÃO COM ELEVENLABS CONVERSATIONAL AI
-    // Por enquanto, vamos simular a chamada
+    // Verificar se temos as credenciais
+    if (!process.env.ELEVENLABS_API_KEY) {
+      throw new Error('ELEVENLABS_API_KEY não configurado');
+    }
     
-    const callData = {
-      lead_name: leadData.name,
-      lead_phone: leadData.phone,
-      lead_interest: leadData.interest,
-      call_type: 'eva_followup',
-      scheduled_at: new Date().toISOString()
+    if (!process.env.EVA_FOLLOWUP_AGENT_ID) {
+      throw new Error('EVA_FOLLOWUP_AGENT_ID não configurado');
+    }
+
+    // Preparar dados da chamada
+    const callPayload = {
+      agent_id: process.env.EVA_FOLLOWUP_AGENT_ID,
+      phone_number: leadData.phone,
+      context_variables: {
+        lead_name: leadData.name,
+        lead_interest: leadData.interest,
+        lead_source: leadData.source
+      }
     };
 
-    // TODO: Integrar com ElevenLabs Conversational AI
-    // const callResult = await elevenLabsCall(callData);
+    console.log('📞 Payload da chamada:', callPayload);
+
+    // Chamada para ElevenLabs Outbound API
+    const response = await fetch('https://api.elevenlabs.io/v1/convai/conversations/outbound', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.ELEVENLABS_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(callPayload)
+    });
+
+    const callResult = await response.json();
     
-    console.log('📞 Chamada Eva simulada:', callData);
+    console.log('📞 Resposta ElevenLabs:', response.status, callResult);
+
+    if (!response.ok) {
+      throw new Error(`ElevenLabs API Error: ${response.status} - ${JSON.stringify(callResult)}`);
+    }
+
+    console.log('✅ Chamada Eva iniciada com sucesso!');
+    console.log('Conversation ID:', callResult.conversation_id);
     
     // Atualizar status do lead
-    await updateLeadStatus(leadData.email, 'eva_called');
+    await updateLeadStatus(leadData.email, 'eva_calling', {
+      conversation_id: callResult.conversation_id,
+      call_initiated_at: new Date().toISOString()
+    });
     
-    return { status: 'call_initiated', data: callData };
+    return { 
+      status: 'call_initiated', 
+      conversation_id: callResult.conversation_id,
+      data: callResult 
+    };
 
   } catch (error) {
-    console.error('❌ Eva Call Error:', error);
-    throw error;
+    console.error('❌ Erro na chamada Eva:', error);
+    
+    // Log detalhado do erro
+    console.error('Error details:', {
+      message: error.message,
+      lead: leadData.name,
+      phone: leadData.phone,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Tentar WhatsApp backup se chamada falhar
+    console.log('🔄 Tentando WhatsApp backup...');
+    await sendWhatsAppFollowup(leadData);
+    
+    return { 
+      status: 'call_failed', 
+      error: error.message,
+      backup_action: 'whatsapp_sent'
+    };
   }
 }
 
