@@ -57,10 +57,10 @@ module.exports = async (req, res) => {
   }
 };
 
-// OAUTH2 CONFIGURATION
+// OAUTH2 CONFIGURATION (usando environment variables por segurança)
 const OAUTH_CONFIG = {
-  client_id: '972355840416-1sfa3tpqrm5d6dneacnanj6mhe0ae0vf.apps.googleusercontent.com',
-  client_secret: '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',
+  client_id: process.env.GOOGLE_CLIENT_ID || '972355840416-1sfa3tpqrm5d6dneacnanj6mhe0ae0vf.apps.googleusercontent.com',
+  client_secret: process.env.GOOGLE_CLIENT_SECRET || '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',
   redirect_uri: 'https://eva-calendly-clean.vercel.app/api/main?action=oauth_callback',
   scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events'
 };
@@ -270,7 +270,7 @@ async function handleCurrentDate(req, res) {
   }
 }
 
-// TOOL 2: Check Availability
+// TOOL 2: Check Availability (APENAS VERIFICAÇÃO - NÃO CRIA EVENTO)
 async function handleCheckAvailability(req, res) {
   try {
     // Get parameters
@@ -285,7 +285,14 @@ async function handleCheckAvailability(req, res) {
     }
 
     // Calculate end time (default 30 minutes if duration not provided)
-    const startDate = new Date(start_time);
+    let startDate = new Date(start_time);
+    
+    // Apply timezone correction
+    if (!start_time.includes('+') && !start_time.includes('Z') && !start_time.includes('-', 10)) {
+      const brasilTime = start_time + '-03:00';
+      startDate = new Date(brasilTime);
+    }
+    
     const durationMinutes = duration ? parseInt(duration) : 30;
     const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
 
@@ -294,6 +301,9 @@ async function handleCheckAvailability(req, res) {
     
     // Use primary calendar
     const calendarId = 'primary';
+    
+    console.log('=== CHECK AVAILABILITY ONLY ===');
+    console.log('Checking availability (NOT creating event):', startDate.toISOString(), 'to', endDate.toISOString());
     
     // Check for existing events using freebusy API
     const freeBusyResponse = await fetch(
@@ -323,6 +333,9 @@ async function handleCheckAvailability(req, res) {
     const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
     const isAvailable = busyTimes.length === 0;
 
+    console.log('Availability result:', isAvailable ? 'AVAILABLE' : 'BUSY');
+    console.log('================================');
+
     return res.status(200).json({
       status: 'success',
       action: 'check_availability',
@@ -330,7 +343,9 @@ async function handleCheckAvailability(req, res) {
         requested_time: {
           start: startDate.toISOString(),
           end: endDate.toISOString(),
-          duration_minutes: durationMinutes
+          duration_minutes: durationMinutes,
+          start_br: startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+          end_br: endDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
         },
         available: isAvailable,
         conflicting_events: busyTimes.map(busy => ({
@@ -591,7 +606,7 @@ async function sendConfirmationEmail(emailData) {
   }
 }
 
-// TOOL 4: Create Google Calendar Event with Google Meet (OAuth2)
+// TOOL 4: Create Google Calendar Event (APENAS CRIAÇÃO - SEM VERIFICAÇÃO PRÉVIA)
 async function handleCreateEvent(req, res) {
   try {
     // Get parameters (preferably from GET query)
@@ -614,7 +629,7 @@ async function handleCreateEvent(req, res) {
     let startDate = new Date(start_time);
     
     // DEBUG: Log para investigar o problema de timezone
-    console.log('=== DEBUG TIMEZONE EMAIL ===');
+    console.log('=== CREATE CALENDAR EVENT ===');
     console.log('start_time recebido:', start_time);
     console.log('startDate inicial:', startDate.toISOString());
     
@@ -627,65 +642,13 @@ async function handleCreateEvent(req, res) {
     
     console.log('startDate final:', startDate.toISOString());
     console.log('startDate hora Brasil:', startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
-    console.log('========================');
     
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
 
-    // AUTOMATIC AVAILABILITY CHECK BEFORE CREATING EVENT
-    console.log('Checking availability before creating event...');
-    console.log(`Requested time: ${startDate.toISOString()} to ${endDate.toISOString()}`);
-    
-    const freeBusyResponse = await fetch(
-      'https://www.googleapis.com/calendar/v3/freeBusy',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          timeMin: startDate.toISOString(),
-          timeMax: endDate.toISOString(),
-          items: [{ id: calendarId }]
-        })
-      }
-    );
-
-    const freeBusyData = await freeBusyResponse.json();
-    const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
-    
-    // If time slot is busy, return conflict error with detailed message
-    if (busyTimes.length > 0) {
-      console.log('Time slot is busy, returning conflict error');
-      console.log('Conflicting events:', busyTimes);
-      
-      return res.status(409).json({
-        status: 'conflict',
-        action: 'create_calendar_event',
-        message: `Horário ${startDate.toLocaleString('pt-BR', { 
-          timeZone: 'America/Sao_Paulo',
-          hour: '2-digit',
-          minute: '2-digit'
-        })} já está ocupado. Use suggest_alternative_times para ver outras opções.`,
-        data: {
-          requested_time: {
-            start: startDate.toISOString(),
-            end: endDate.toISOString(),
-            start_br: startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-            end_br: endDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-          },
-          conflicting_events: busyTimes.map(busy => ({
-            start: busy.start,
-            end: busy.end,
-            start_br: new Date(busy.start).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-            end_br: new Date(busy.end).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-          })),
-          suggestion: "Execute suggest_alternative_times para ver horários disponíveis"
-        }
-      });
-    }
-
-    console.log('Time slot is available, proceeding with event creation...');
+    // REMOVIDO: Verificação automática de disponibilidade
+    // A verificação deve ser feita ANTES com check_availability
+    console.log('Creating event directly (availability should be checked before)');
+    console.log(`Event time: ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
     // Create event payload (COM GOOGLE MEET via OAuth2)
     const eventPayload = {
@@ -735,8 +698,36 @@ async function handleCreateEvent(req, res) {
     console.log('Google Calendar Response:', data);
 
     if (!response.ok) {
+      // Se houver erro, pode ser conflito ou outro problema
+      console.error('Event creation failed:', response.status, data);
+      
+      // Verificar se é erro de conflito específico
+      if (response.status === 409 || data.error?.message?.includes('conflict')) {
+        return res.status(409).json({
+          status: 'conflict',
+          action: 'create_calendar_event',
+          message: `Horário ${startDate.toLocaleString('pt-BR', { 
+            timeZone: 'America/Sao_Paulo',
+            hour: '2-digit',
+            minute: '2-digit'
+          })} já está ocupado. Use suggest_alternative_times para ver outras opções.`,
+          data: {
+            requested_time: {
+              start: startDate.toISOString(),
+              end: endDate.toISOString(),
+              start_br: startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+              end_br: endDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+            },
+            suggestion: "Execute suggest_alternative_times para ver horários disponíveis"
+          }
+        });
+      }
+      
       throw new Error(`Google Calendar Error: ${response.status} - ${JSON.stringify(data)}`);
     }
+
+    console.log('Event created successfully!');
+    console.log('==============================');
 
     // ENVIAR EMAIL DE CONFIRMAÇÃO
     let emailSent = false;
