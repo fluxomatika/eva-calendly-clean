@@ -106,11 +106,10 @@ async function triggerEvaFollowup(leadData) {
     };
 
     // 1. AGENDAR CHAMADA EVA (5 minutos)
-    setTimeout(async () => {
-      console.log('📞 INICIANDO CHAMADA EVA para:', leadData.name);
-      await initiateEvaCall(leadData);
-    }, 5 * 60 * 1000); // 5 minutos
-    
+   setTimeout(async () => {
+  console.log('📞 INICIANDO CHAMADA EVA para:', leadData.name);
+  await initiateEvaCall(leadData);
+}, 1 * 60 * 1000); // 1 minuto
     results.voice_call_scheduled = true;
 
     // 2. AGENDAR BACKUP WHATSAPP (30 minutos)
