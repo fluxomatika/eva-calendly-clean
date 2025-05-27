@@ -13,12 +13,17 @@ module.exports = async (req, res) => {
   }
 
   try {
+    console.log('=== WEBHOOK DEBUG COMPLETO ===');
     console.log(`[${new Date().toISOString()}] EVA Follow-up Webhook triggered`);
     console.log('Method:', req.method);
-    console.log('Body:', req.body);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    console.log('Query:', JSON.stringify(req.query, null, 2));
+    console.log('==============================');
     
     // Só aceita POST (leads do formulário)
     if (req.method !== 'POST') {
+      console.log('❌ Método não permitido:', req.method);
       return res.status(405).json({
         status: 'error',
         message: 'Método não permitido. Use POST para enviar leads.'
@@ -28,8 +33,11 @@ module.exports = async (req, res) => {
     // Extrair dados do lead
     const { name, email, phone, source, interest, utm_source, utm_campaign } = req.body;
     
+    console.log('📋 Dados extraídos:', { name, email, phone, source, interest });
+    
     // Validações básicas
     if (!name || !email) {
+      console.log('❌ Validação falhou: campos obrigatórios');
       return res.status(400).json({
         status: 'error',
         message: 'Campos obrigatórios: name, email'
@@ -39,6 +47,7 @@ module.exports = async (req, res) => {
     // Validar formato do email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      console.log('❌ Email inválido:', email);
       return res.status(400).json({
         status: 'error',
         message: 'Email inválido'
@@ -59,15 +68,19 @@ module.exports = async (req, res) => {
       status: 'new'
     };
 
+    console.log('✅ Dados validados:', JSON.stringify(leadData, null, 2));
     console.log('🎯 NOVO LEAD PROCESSADO:', leadData);
 
     // TRIGGER EVA FOLLOW-UP
+    console.log('⚡ Iniciando trigger Eva Follow-up...');
     const followupResult = await triggerEvaFollowup(leadData);
+    console.log('✅ Trigger Eva Follow-up concluído:', followupResult);
     
     // Salvar lead (básico - depois integrar com Airtable)
+    console.log('💾 Salvando dados do lead...');
     await saveLeadData(leadData);
 
-    return res.status(200).json({
+    const responseData = {
       status: 'success',
       message: `Lead ${name} capturado com sucesso! Eva Follow-up será ativada em instantes.`,
       data: {
@@ -76,16 +89,20 @@ module.exports = async (req, res) => {
         email: leadData.email,
         eva_followup: followupResult,
         next_actions: [
-          'Eva ligará em 5 minutos',
+          'Eva ligará em 1 minuto',
           'WhatsApp backup em 30 minutos (se necessário)',
           'Lead salvo no CRM'
         ]
       },
       timestamp: leadData.brazil_time
-    });
+    };
+
+    console.log('📤 Enviando response:', JSON.stringify(responseData, null, 2));
+    return res.status(200).json(responseData);
 
   } catch (error) {
-    console.error('❌ Webhook Error:', error);
+    console.error('❌ WEBHOOK ERROR CRÍTICO:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({
       status: 'error',
       message: 'Erro interno do servidor',
@@ -102,23 +119,38 @@ async function triggerEvaFollowup(leadData) {
     const results = {
       voice_call_scheduled: false,
       whatsapp_backup_scheduled: false,
-      delay_minutes: 5
+      delay_minutes: 1
     };
 
-    // 1. AGENDAR CHAMADA EVA (5 minutos)
-   setTimeout(async () => {
-  console.log('📞 INICIANDO CHAMADA EVA para:', leadData.name);
-  await initiateEvaCall(leadData);
-}, 1 * 60 * 1000); // 1 minuto
+    // 1. AGENDAR CHAMADA EVA (1 minuto)
+    console.log('⏰ Agendando chamada Eva para 1 minuto...');
+    setTimeout(async () => {
+      console.log('📞 EXECUTANDO CHAMADA EVA para:', leadData.name);
+      try {
+        const callResult = await initiateEvaCall(leadData);
+        console.log('✅ Resultado da chamada:', callResult);
+      } catch (error) {
+        console.error('❌ Erro na execução da chamada:', error);
+      }
+    }, 1 * 60 * 1000); // 1 minuto
+    
     results.voice_call_scheduled = true;
+    console.log('✅ Chamada agendada para 1 minuto');
 
     // 2. AGENDAR BACKUP WHATSAPP (30 minutos)
+    console.log('⏰ Agendando WhatsApp backup para 30 minutos...');
     setTimeout(async () => {
-      console.log('💬 BACKUP WHATSAPP para:', leadData.name);
-      await sendWhatsAppFollowup(leadData);
+      console.log('💬 EXECUTANDO BACKUP WHATSAPP para:', leadData.name);
+      try {
+        const whatsappResult = await sendWhatsAppFollowup(leadData);
+        console.log('✅ Resultado WhatsApp:', whatsappResult);
+      } catch (error) {
+        console.error('❌ Erro no WhatsApp backup:', error);
+      }
     }, 30 * 60 * 1000); // 30 minutos
     
     results.whatsapp_backup_scheduled = true;
+    console.log('✅ WhatsApp backup agendado para 30 minutos');
 
     console.log('✅ Eva Follow-up agendada:', results);
     return results;
@@ -132,8 +164,8 @@ async function triggerEvaFollowup(leadData) {
 // FUNÇÃO: INICIAR CHAMADA EVA
 async function initiateEvaCall(leadData) {
   try {
-    console.log('📞 Iniciando chamada Eva Follow-up via ElevenLabs...');
-    console.log('Lead:', leadData.name, leadData.phone);
+    console.log('📞 === INICIANDO CHAMADA EVA FOLLOW-UP ===');
+    console.log('📞 Lead:', leadData.name, leadData.phone);
     
     // Verificar se temos as credenciais
     if (!process.env.ELEVENLABS_API_KEY) {
@@ -143,6 +175,8 @@ async function initiateEvaCall(leadData) {
     if (!process.env.EVA_FOLLOWUP_AGENT_ID) {
       throw new Error('EVA_FOLLOWUP_AGENT_ID não configurado');
     }
+
+    console.log('✅ Credenciais verificadas');
 
     // Preparar dados da chamada
     const callPayload = {
@@ -155,9 +189,10 @@ async function initiateEvaCall(leadData) {
       }
     };
 
-    console.log('📞 Payload da chamada:', callPayload);
+    console.log('📞 Payload da chamada:', JSON.stringify(callPayload, null, 2));
 
     // Chamada para ElevenLabs Outbound API
+    console.log('🌐 Fazendo chamada para ElevenLabs API...');
     const response = await fetch('https://api.elevenlabs.io/v1/convai/conversations/outbound', {
       method: 'POST',
       headers: {
@@ -168,22 +203,24 @@ async function initiateEvaCall(leadData) {
       body: JSON.stringify(callPayload)
     });
 
+    console.log('📞 Status da resposta ElevenLabs:', response.status);
     const callResult = await response.json();
-    
-    console.log('📞 Resposta ElevenLabs:', response.status, callResult);
+    console.log('📞 Resposta ElevenLabs completa:', JSON.stringify(callResult, null, 2));
 
     if (!response.ok) {
       throw new Error(`ElevenLabs API Error: ${response.status} - ${JSON.stringify(callResult)}`);
     }
 
     console.log('✅ Chamada Eva iniciada com sucesso!');
-    console.log('Conversation ID:', callResult.conversation_id);
+    console.log('✅ Conversation ID:', callResult.conversation_id);
     
     // Atualizar status do lead
     await updateLeadStatus(leadData.email, 'eva_calling', {
       conversation_id: callResult.conversation_id,
       call_initiated_at: new Date().toISOString()
     });
+    
+    console.log('📞 === CHAMADA EVA CONCLUÍDA ===');
     
     return { 
       status: 'call_initiated', 
@@ -192,10 +229,11 @@ async function initiateEvaCall(leadData) {
     };
 
   } catch (error) {
-    console.error('❌ Erro na chamada Eva:', error);
+    console.error('❌ ERRO CRÍTICO NA CHAMADA EVA:', error);
+    console.error('❌ Error stack:', error.stack);
     
     // Log detalhado do erro
-    console.error('Error details:', {
+    console.error('❌ Error details:', {
       message: error.message,
       lead: leadData.name,
       phone: leadData.phone,
@@ -204,12 +242,16 @@ async function initiateEvaCall(leadData) {
     
     // Tentar WhatsApp backup se chamada falhar
     console.log('🔄 Tentando WhatsApp backup...');
-    await sendWhatsAppFollowup(leadData);
+    try {
+      await sendWhatsAppFollowup(leadData);
+    } catch (whatsappError) {
+      console.error('❌ WhatsApp backup também falhou:', whatsappError);
+    }
     
     return { 
       status: 'call_failed', 
       error: error.message,
-      backup_action: 'whatsapp_sent'
+      backup_action: 'whatsapp_attempted'
     };
   }
 }
@@ -217,7 +259,8 @@ async function initiateEvaCall(leadData) {
 // FUNÇÃO: WHATSAPP BACKUP
 async function sendWhatsAppFollowup(leadData) {
   try {
-    console.log('💬 Enviando WhatsApp backup...');
+    console.log('💬 === ENVIANDO WHATSAPP BACKUP ===');
+    console.log('💬 Para:', leadData.phone);
     
     const message = `
 Oi ${leadData.name}! 👋
@@ -237,10 +280,12 @@ Posso te ligar agora ou prefere agendar um horário? 📞
     // const whatsappResult = await sendWhatsApp(leadData.phone, message);
     
     console.log('💬 WhatsApp simulado para:', leadData.phone);
-    console.log('Mensagem:', message);
+    console.log('💬 Mensagem:', message);
     
     // Atualizar status do lead
     await updateLeadStatus(leadData.email, 'whatsapp_sent');
+    
+    console.log('💬 === WHATSAPP BACKUP CONCLUÍDO ===');
     
     return { status: 'whatsapp_sent', message_preview: message.substring(0, 100) };
 
@@ -253,12 +298,17 @@ Posso te ligar agora ou prefere agendar um horário? 📞
 // FUNÇÃO: SALVAR LEAD (BÁSICO - JSON temporário)
 async function saveLeadData(leadData) {
   try {
-    console.log('💾 Salvando lead:', leadData.email);
+    console.log('💾 === SALVANDO LEAD ===');
+    console.log('💾 Email:', leadData.email);
     
     // Por enquanto, só log (depois integrar com Airtable)
-    console.log('Lead salvo:', JSON.stringify(leadData, null, 2));
+    console.log('💾 Lead completo:', JSON.stringify(leadData, null, 2));
     
-    return { status: 'saved', lead_id: generateLeadId() };
+    const leadId = generateLeadId();
+    console.log('💾 Lead ID gerado:', leadId);
+    console.log('💾 === LEAD SALVO ===');
+    
+    return { status: 'saved', lead_id: leadId };
     
   } catch (error) {
     console.error('❌ Save Error:', error);
@@ -267,14 +317,28 @@ async function saveLeadData(leadData) {
 }
 
 // FUNÇÃO: ATUALIZAR STATUS LEAD
-async function updateLeadStatus(email, status) {
+async function updateLeadStatus(email, status, additionalData = {}) {
   try {
-    console.log(`📊 Atualizando status: ${email} → ${status}`);
+    console.log(`📊 === ATUALIZANDO STATUS ===`);
+    console.log(`📊 Email: ${email}`);
+    console.log(`📊 Status: ${status}`);
+    console.log(`📊 Additional data:`, additionalData);
     
-    // TODO: Integrar com Airtable
-    console.log('Status atualizado (simulado)');
+    const updateData = {
+      email,
+      status,
+      updated_at: new Date().toISOString(),
+      brazil_time: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      ...additionalData
+    };
     
-    return { status: 'updated' };
+    console.log('📊 Update data completo:', JSON.stringify(updateData, null, 2));
+    
+    // TODO: Integrar com Airtable quando implementarmos CRM
+    console.log('📊 Status atualizado (simulado)');
+    console.log('📊 === STATUS ATUALIZADO ===');
+    
+    return { status: 'updated', data: updateData };
     
   } catch (error) {
     console.error('❌ Update Status Error:', error);
@@ -284,7 +348,9 @@ async function updateLeadStatus(email, status) {
 
 // FUNÇÃO: GERAR ID DO LEAD
 function generateLeadId() {
-  return `eva_lead_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+  const id = `eva_lead_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+  console.log('🆔 Lead ID gerado:', id);
+  return id;
 }
 
 // FUNÇÃO: GET CURRENT DATE (mesma do EVA atual)
