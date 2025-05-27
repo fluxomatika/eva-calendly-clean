@@ -1,4 +1,4 @@
-// api/main.js - Eva Enhanced FUNCIONAL (sem Google Meet por enquanto)
+// api/main.js - Eva OAuth2 com Google Meet
 module.exports = async (req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -29,13 +29,21 @@ module.exports = async (req, res) => {
         
       case 'create_calendar_event':
         return handleCreateEvent(req, res);
+
+      case 'oauth_authorize':
+        return handleOAuthAuthorize(req, res);
+
+      case 'oauth_callback':
+        return handleOAuthCallback(req, res);
         
       default:
         return res.status(200).json({
           status: 'success',
-          message: 'Eva Enhanced API funcionando!',
+          message: 'Eva OAuth2 API funcionando!',
           timestamp: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-          actions: ['get_current_date', 'check_availability', 'suggest_alternative_times', 'create_calendar_event']
+          actions: ['get_current_date', 'check_availability', 'suggest_alternative_times', 'create_calendar_event'],
+          oauth_status: process.env.GOOGLE_REFRESH_TOKEN ? 'authorized' : 'needs_authorization',
+          authorize_url: process.env.GOOGLE_REFRESH_TOKEN ? null : 'https://eva-calendly-clean.vercel.app/api/main?action=oauth_authorize'
         });
     }
     
@@ -48,6 +56,179 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+// OAUTH2 CONFIGURATION
+const OAUTH_CONFIG = {
+  client_id: '972355840416-1sfa3tpqrm5d6dneacnanj6mhe0ae0vf.apps.googleusercontent.com',
+  client_secret: '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',
+  redirect_uri: 'https://eva-calendly-clean.vercel.app/api/main?action=oauth_callback',
+  scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events'
+};
+
+// OAUTH2: Step 1 - Authorization URL
+async function handleOAuthAuthorize(req, res) {
+  try {
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+      `client_id=${OAUTH_CONFIG.client_id}` +
+      `&redirect_uri=${encodeURIComponent(OAUTH_CONFIG.redirect_uri)}` +
+      `&scope=${encodeURIComponent(OAUTH_CONFIG.scope)}` +
+      `&response_type=code` +
+      `&access_type=offline` +
+      `&prompt=consent`;
+
+    console.log('OAuth Authorization URL:', authUrl);
+    
+    // Redirect to Google OAuth
+    res.writeHead(302, { Location: authUrl });
+    res.end();
+    
+  } catch (error) {
+    console.error('OAuth Authorize Error:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: 'Erro na autorização OAuth',
+      error: error.message
+    });
+  }
+}
+
+// OAUTH2: Step 2 - Handle Callback & Get Refresh Token
+async function handleOAuthCallback(req, res) {
+  try {
+    const { code, error } = req.query;
+    
+    if (error) {
+      throw new Error(`OAuth Error: ${error}`);
+    }
+    
+    if (!code) {
+      throw new Error('No authorization code received');
+    }
+
+    console.log('OAuth callback received, exchanging code for tokens...');
+    
+    // Exchange code for tokens
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: OAUTH_CONFIG.client_id,
+        client_secret: OAUTH_CONFIG.client_secret,
+        code: code,
+        grant_type: 'authorization_code',
+        redirect_uri: OAUTH_CONFIG.redirect_uri
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+    
+    if (!tokenResponse.ok) {
+      throw new Error(`Token Error: ${JSON.stringify(tokenData)}`);
+    }
+
+    console.log('OAuth tokens received successfully');
+    
+    // Return success page with instructions
+    const successHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Eva OAuth - Autorização Concluída</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .success { background: #d4edda; color: #155724; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .code { background: #f8f9fa; padding: 15px; border-radius: 4px; font-family: monospace; word-break: break-all; }
+        .warning { background: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; margin: 20px 0; }
+      </style>
+    </head>
+    <body>
+      <h2>🎉 Autorização OAuth Concluída!</h2>
+      
+      <div class="success">
+        <strong>Sucesso!</strong> Eva agora tem acesso ao seu Google Calendar e pode criar Google Meet automaticamente.
+      </div>
+      
+      <h3>📋 Próximo Passo:</h3>
+      <p>Adicione esta variável de ambiente no Vercel:</p>
+      
+      <div class="code">
+        <strong>Nome:</strong> GOOGLE_REFRESH_TOKEN<br>
+        <strong>Valor:</strong> ${tokenData.refresh_token}
+      </div>
+      
+      <div class="warning">
+        <strong>Importante:</strong> 
+        <ul>
+          <li>Copie o refresh_token acima</li>
+          <li>Adicione como variável de ambiente no Vercel</li>
+          <li>Faça redeploy da aplicação</li>
+          <li>Eva estará pronta para criar Google Meet!</li>
+        </ul>
+      </div>
+      
+      <p><a href="https://vercel.com/dashboard">Ir para Vercel Dashboard</a></p>
+    </body>
+    </html>
+    `;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.status(200).send(successHtml);
+    
+  } catch (error) {
+    console.error('OAuth Callback Error:', error);
+    
+    const errorHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head><title>Eva OAuth - Erro</title></head>
+    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px;">
+      <h2>❌ Erro na Autorização OAuth</h2>
+      <p><strong>Erro:</strong> ${error.message}</p>
+      <p><a href="/api/main?action=oauth_authorize">Tentar Novamente</a></p>
+    </body>
+    </html>
+    `;
+    
+    res.setHeader('Content-Type', 'text/html');
+    res.status(500).send(errorHtml);
+  }
+}
+
+// Get OAuth2 Access Token using Refresh Token
+async function getOAuth2AccessToken() {
+  try {
+    if (!process.env.GOOGLE_REFRESH_TOKEN) {
+      throw new Error('GOOGLE_REFRESH_TOKEN não configurado. Execute oauth_authorize primeiro.');
+    }
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: OAUTH_CONFIG.client_id,
+        client_secret: OAUTH_CONFIG.client_secret,
+        refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+        grant_type: 'refresh_token'
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+    
+    if (!tokenResponse.ok) {
+      throw new Error(`OAuth2 Token Error: ${JSON.stringify(tokenData)}`);
+    }
+
+    return tokenData.access_token;
+    
+  } catch (error) {
+    console.error('OAuth2 Access Token Error:', error);
+    throw error;
+  }
+}
 
 // TOOL 1: Get Current Date/Time
 async function handleCurrentDate(req, res) {
@@ -92,10 +273,6 @@ async function handleCurrentDate(req, res) {
 // TOOL 2: Check Availability
 async function handleCheckAvailability(req, res) {
   try {
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-      throw new Error('Google Service Account não configurado');
-    }
-
     // Get parameters
     const { start_time, duration } = req.method === 'GET' ? req.query : req.body;
     
@@ -113,10 +290,10 @@ async function handleCheckAvailability(req, res) {
     const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
 
     // Get access token
-    const accessToken = await getGoogleAccessToken();
+    const accessToken = await getOAuth2AccessToken();
     
-    // Use specific calendar ID for consistency
-    const calendarId = 'fluxomatika@gmail.com';
+    // Use primary calendar
+    const calendarId = 'primary';
     
     // Check for existing events using freebusy API
     const freeBusyResponse = await fetch(
@@ -182,10 +359,6 @@ async function handleCheckAvailability(req, res) {
 // TOOL 3: Suggest Alternative Times
 async function handleSuggestAlternatives(req, res) {
   try {
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-      throw new Error('Google Service Account não configurado');
-    }
-
     // Get parameters
     const { start_time, duration, date } = req.method === 'GET' ? req.query : req.body;
     
@@ -201,8 +374,8 @@ async function handleSuggestAlternatives(req, res) {
     const baseDate = start_time ? new Date(start_time) : new Date(date);
     
     // Get access token
-    const accessToken = await getGoogleAccessToken();
-    const calendarId = 'fluxomatika@gmail.com';
+    const accessToken = await getOAuth2AccessToken();
+    const calendarId = 'primary';
 
     // Check availability for multiple time slots on the same day
     const suggestions = [];
@@ -255,9 +428,6 @@ async function handleSuggestAlternatives(req, res) {
       const busyTimes = freeBusyData.calendars[calendarId]?.busy || [];
       
       console.log(`${hour}h - Busy times found:`, busyTimes.length);
-      if (busyTimes.length > 0) {
-        console.log(`${hour}h - CONFLICTS:`, busyTimes);
-      }
       
       // Only suggest if NO conflicts (same as create_calendar_event)
       if (busyTimes.length === 0) {
@@ -298,63 +468,6 @@ async function handleSuggestAlternatives(req, res) {
       error: error.message
     });
   }
-}
-
-// Helper: Get Google Access Token using Service Account
-async function getGoogleAccessToken() {
-  try {
-    const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-    
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: await createJWT(serviceAccount)
-      })
-    });
-    
-    if (!tokenResponse.ok) {
-      const error = await tokenResponse.json();
-      throw new Error(`Token Error: ${JSON.stringify(error)}`);
-    }
-    
-    const tokenData = await tokenResponse.json();
-    return tokenData.access_token;
-    
-  } catch (error) {
-    console.error('Access Token Error:', error);
-    throw error;
-  }
-}
-
-// Helper: Create JWT
-async function createJWT(serviceAccount) {
-  const header = {
-    alg: 'RS256',
-    typ: 'JWT'
-  };
-  
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    iss: serviceAccount.client_email,
-    scope: 'https://www.googleapis.com/auth/calendar',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now
-  };
-  
-  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
-  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  
-  const crypto = require('crypto');
-  const sign = crypto.createSign('RSA-SHA256');
-  sign.update(`${encodedHeader}.${encodedPayload}`);
-  const signature = sign.sign(serviceAccount.private_key, 'base64url');
-  
-  return `${encodedHeader}.${encodedPayload}.${signature}`;
 }
 
 // FUNÇÃO DE EMAIL AUTOMÁTICO
@@ -478,13 +591,9 @@ async function sendConfirmationEmail(emailData) {
   }
 }
 
-// TOOL 4: Create Google Calendar Event (SEM GOOGLE MEET por enquanto)
+// TOOL 4: Create Google Calendar Event with Google Meet (OAuth2)
 async function handleCreateEvent(req, res) {
   try {
-    if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-      throw new Error('Google Service Account não configurado');
-    }
-
     // Get parameters (preferably from GET query)
     const { summary, description, start_time, end_time, attendee_email, attendee_name } = 
       req.method === 'GET' ? req.query : req.body;
@@ -498,8 +607,8 @@ async function handleCreateEvent(req, res) {
     }
 
     // Get access token
-    const accessToken = await getGoogleAccessToken();
-    const calendarId = 'fluxomatika@gmail.com';
+    const accessToken = await getOAuth2AccessToken();
+    const calendarId = 'primary';
     
     // Calculate end time if not provided (default: +30 minutes)  
     let startDate = new Date(start_time);
@@ -508,28 +617,16 @@ async function handleCreateEvent(req, res) {
     console.log('=== DEBUG TIMEZONE EMAIL ===');
     console.log('start_time recebido:', start_time);
     console.log('startDate inicial:', startDate.toISOString());
-    console.log('startDate hora UTC:', startDate.getUTCHours());
     
-    // CORREÇÃO DE TIMEZONE - se não tem timezone, interpretar como horário do Brasil
+    // If no timezone info in start_time, assume Brazil timezone
     if (!start_time.includes('+') && !start_time.includes('Z') && !start_time.includes('-', 10)) {
-      // Se Eva enviou "2025-05-27T09:00:00", significa 9h no Brasil
-      // Precisamos converter para UTC: 9h Brasil = 12h UTC
-      const [datePart, timePart] = start_time.split('T');
-      const [hours, minutes, seconds] = timePart.split(':');
-      
-      // Criar data interpretando como hora do Brasil (UTC-3)
-      startDate = new Date(datePart + 'T' + timePart + '-03:00');
-      
-      console.log('Interpretado como horário Brasil (UTC-3):', startDate.toISOString());
+      const brasilTime = start_time + '-03:00';
+      startDate = new Date(brasilTime);
+      console.log('startDate após correção:', startDate.toISOString());
     }
     
     console.log('startDate final:', startDate.toISOString());
     console.log('startDate hora Brasil:', startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
-    console.log('Hora que deve aparecer no email:', startDate.toLocaleTimeString('pt-BR', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      timeZone: 'America/Sao_Paulo'
-    }));
     console.log('========================');
     
     const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
@@ -590,7 +687,7 @@ async function handleCreateEvent(req, res) {
 
     console.log('Time slot is available, proceeding with event creation...');
 
-    // Create event payload (COM Google Meet - configuração simplificada)
+    // Create event payload (COM GOOGLE MEET via OAuth2)
     const eventPayload = {
       summary: `${summary} - ${attendee_name || attendee_email}`,
       description: `Reunião agendada via Eva - Assistente Virtual da Fluxomatika\n\nCliente: ${attendee_name || 'N/A'}\nEmail: ${attendee_email}\n\n${description || ''}`,
@@ -604,7 +701,7 @@ async function handleCreateEvent(req, res) {
       },
       conferenceData: {
         createRequest: {
-          requestId: `meet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          requestId: `eva-oauth-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           conferenceSolutionKey: {
             type: 'hangoutsMeet'
           }
@@ -619,9 +716,9 @@ async function handleCreateEvent(req, res) {
       }
     };
 
-    console.log('Creating Calendar Event:', eventPayload);
+    console.log('Creating Calendar Event with Google Meet:', eventPayload);
     
-    // Google Calendar API call with Service Account (COM Google Meet)
+    // Google Calendar API call with OAuth2 (COM GOOGLE MEET)
     const response = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?conferenceDataVersion=1`,
       {
@@ -657,7 +754,7 @@ async function handleCreateEvent(req, res) {
           timeZone: 'America/Sao_Paulo'
         }),
         meetingLink: data.htmlLink,
-        hangoutLink: data.hangoutLink || null
+        hangoutLink: data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri
       });
       
       emailSent = emailResult.success;
@@ -674,12 +771,14 @@ async function handleCreateEvent(req, res) {
       status: 'success',
       action: 'create_calendar_event',
       message: emailSent ? 
-        'Evento criado e email de confirmação enviado com sucesso!' :
-        'Evento criado com sucesso! (Email teve problema, mas agendamento foi confirmado)',
+        'Evento criado com Google Meet e email de confirmação enviado com sucesso!' :
+        'Evento criado com Google Meet com sucesso! (Email teve problema, mas agendamento foi confirmado)',
       data: {
         event_id: data.id,
         event_link: data.htmlLink,
-        hangout_link: data.hangoutLink || null,
+        hangout_link: data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri,
+        google_meet_link: data.conferenceData?.entryPoints?.[0]?.uri,
+        conference_data: data.conferenceData,
         calendar_event: data,
         email_sent: emailSent,
         email_error: emailError
@@ -698,7 +797,7 @@ async function handleCreateEvent(req, res) {
         meeting_date: startDate.toLocaleDateString('pt-BR'),
         meeting_time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         meeting_link: data.htmlLink,
-        hangout_link: data.hangoutLink || null
+        hangout_link: data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri
       }
     });
 
