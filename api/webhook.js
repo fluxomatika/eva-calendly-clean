@@ -89,7 +89,7 @@ module.exports = async (req, res) => {
         email: leadData.email,
         eva_followup: followupResult,
         next_actions: [
-          'Eva ligará em 1 minuto',
+          'Eva ligará em 30 segundos',
           'WhatsApp backup em 30 minutos (se necessário)',
           'Lead salvo no CRM'
         ]
@@ -119,11 +119,11 @@ async function triggerEvaFollowup(leadData) {
     const results = {
       voice_call_scheduled: false,
       whatsapp_backup_scheduled: false,
-      delay_minutes: 1
+      delay_minutes: 0.5
     };
 
     // 1. AGENDAR CHAMADA EVA (1 minuto)
-    console.log('⏰ Agendando chamada Eva para 1 minuto...');
+    console.log('⏰ Agendando chamada Eva para 30 segundos...');
     setTimeout(async () => {
       console.log('📞 EXECUTANDO CHAMADA EVA para:', leadData.name);
       try {
@@ -132,10 +132,10 @@ async function triggerEvaFollowup(leadData) {
       } catch (error) {
         console.error('❌ Erro na execução da chamada:', error);
       }
-    }, 1 * 60 * 1000); // 1 minuto
+    }, 30 * 1000); // 1 minuto
     
     results.voice_call_scheduled = true;
-    console.log('✅ Chamada agendada para 1 minuto');
+    console.log('✅ Chamada agendada para 30 segundos');
 
     // 2. AGENDAR BACKUP WHATSAPP (30 minutos)
     console.log('⏰ Agendando WhatsApp backup para 30 minutos...');
