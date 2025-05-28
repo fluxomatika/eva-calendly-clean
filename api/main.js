@@ -674,4 +674,168 @@ async function handleCreateEvent(req, res) {
     console.log('📝 startDate inicial:', startDate.toISOString());
     
     // If no timezone info in start_time, assume Brazil timezone
-    if (!start_time.includes('+') && !start_time.includes('Z
+    if (!start_time.includes('+') && !start_time.includes('Z') && !start_time.includes('-', 10)) {
+      const brasilTime = start_time + '-03:00';
+      startDate = new Date(brasilTime);
+      console.log('📝 startDate após correção:', startDate.toISOString());
+    }
+    
+    console.log('📝 startDate final:', startDate.toISOString());
+    console.log('📝 startDate hora Brasil:', startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }));
+    
+    const endDate = end_time ? new Date(end_time) : new Date(startDate.getTime() + 30 * 60 * 1000);
+
+    console.log('📝 Creating event directly (availability should be checked before)');
+    console.log(`📝 Event time: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+
+    // Create event payload (COM GOOGLE MEET via OAuth2)
+    const eventPayload = {
+      summary: `${summary} - ${attendee_name || attendee_email}`,
+      description: `Reunião agendada via Eva - Assistente Virtual da Evolua\n\nCliente: ${attendee_name || 'N/A'}\nEmail: ${attendee_email}\n\n${description || ''}`,
+      start: {
+        dateTime: startDate.toISOString(),
+        timeZone: 'America/Sao_Paulo'
+      },
+      end: {
+        dateTime: endDate.toISOString(),
+        timeZone: 'America/Sao_Paulo'
+      },
+      conferenceData: {
+        createRequest: {
+          requestId: `eva-oauth-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          conferenceSolutionKey: {
+            type: 'hangoutsMeet'
+          }
+        }
+      },
+      reminders: {
+        useDefault: false,
+        overrides: [
+          { method: 'email', minutes: 60 },
+          { method: 'popup', minutes: 10 }
+        ]
+      }
+    };
+
+    console.log('📝 Creating Calendar Event with Google Meet:', eventPayload);
+    
+    // Google Calendar API call with OAuth2 (COM GOOGLE MEET)
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?conferenceDataVersion=1`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(eventPayload)
+      }
+    );
+
+    const data = await response.json();
+    console.log('📝 Google Calendar Response:', data);
+
+    if (!response.ok) {
+      console.error('📝 Event creation failed:', response.status, data);
+      
+      if (response.status === 409 || data.error?.message?.includes('conflict')) {
+        return res.status(409).json({
+          status: 'conflict',
+          action: 'create_calendar_event',
+          message: `Horário ${startDate.toLocaleString('pt-BR', { 
+            timeZone: 'America/Sao_Paulo',
+            hour: '2-digit',
+            minute: '2-digit'
+          })} já está ocupado. Use suggest_alternative_times para ver outras opções.`,
+          data: {
+            requested_time: {
+              start: startDate.toISOString(),
+              end: endDate.toISOString(),
+              start_br: startDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+              end_br: endDate.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+            },
+            suggestion: "Execute suggest_alternative_times para ver horários disponíveis"
+          }
+        });
+      }
+      
+      throw new Error(`Google Calendar Error: ${response.status} - ${JSON.stringify(data)}`);
+    }
+
+    console.log('📝 Event created successfully!');
+
+    // ENVIAR EMAIL DE CONFIRMAÇÃO
+    let emailSent = false;
+    let emailError = null;
+    
+    try {
+      const emailResult = await sendConfirmationEmail({
+        to: attendee_email,
+        clientName: attendee_name || attendee_email.split('@')[0],
+        summary: summary,
+        date: startDate.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+        time: startDate.toLocaleTimeString('pt-BR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          timeZone: 'America/Sao_Paulo'
+        }),
+        meetingLink: data.htmlLink,
+        hangoutLink: data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri
+      });
+      
+      emailSent = emailResult.success;
+      if (!emailResult.success) {
+        emailError = emailResult.error;
+      }
+      
+    } catch (error) {
+      console.error('📝 Erro crítico no email:', error);
+      emailError = error.message;
+    }
+
+    console.log('📝 === CREATE CALENDAR EVENT END ===');
+
+    return res.status(200).json({
+      status: 'success',
+      action: 'create_calendar_event',
+      message: emailSent ? 
+        'Evento criado com Google Meet e email de confirmação enviado com sucesso!' :
+        'Evento criado com Google Meet com sucesso! (Email teve problema, mas agendamento foi confirmado)',
+      data: {
+        event_id: data.id,
+        event_link: data.htmlLink,
+        hangout_link: data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri,
+        google_meet_link: data.conferenceData?.entryPoints?.[0]?.uri,
+        conference_data: data.conferenceData,
+        calendar_event: data,
+        email_sent: emailSent,
+        email_error: emailError
+      },
+      booking_info: {
+        summary,
+        attendee_email,
+        attendee_name,
+        start_time: startDate.toISOString(),
+        end_time: endDate.toISOString(),
+        timezone: 'America/Sao_Paulo'
+      },
+      notification_data: {
+        client_name: attendee_name || attendee_email.split('@')[0],
+        client_email: attendee_email,
+        meeting_date: startDate.toLocaleDateString('pt-BR'),
+        meeting_time: startDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        meeting_link: data.htmlLink,
+        hangout_link: data.hangoutLink || data.conferenceData?.entryPoints?.[0]?.uri
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Create Event Error:', error);
+    return res.status(500).json({
+      status: 'error',
+      action: 'create_calendar_event',
+      message: 'Erro ao criar evento no Google Calendar',
+      error: error.message
+    });
+  }
+}
