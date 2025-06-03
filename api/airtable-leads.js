@@ -93,7 +93,7 @@ const createLead = async (leadData) => {
         'WhatsApp Enviado': false,
         'Notas': `Lead criado via API em ${new Date().toLocaleString('pt-BR')}`,
         
-        // Personality System fields (will be populated later)
+        // Personality System fields (all fields now exist in Airtable)
         'Personalidade Recomendada': null,
         'Confiança Personalidade': null,
         'Estratégia Personalidade': null,
@@ -298,8 +298,49 @@ const listLeads = async (filters = {}) => {
   }
 };
 
-// Test Airtable connectivity
-const testConnection = async () => {
+// Debug: List all available fields in Airtable
+const debugAirtableFields = async () => {
+  try {
+    console.log('🔍 Debugging Airtable fields...');
+
+    const response = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_LEADS}?maxRecords=1`, {
+      headers: {
+        'Authorization': `Bearer ${AIRTABLE_API_KEY}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Debug failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    
+    if (result.records && result.records.length > 0) {
+      const fields = Object.keys(result.records[0].fields);
+      console.log('📋 Available fields in Airtable:');
+      fields.forEach((field, index) => {
+        console.log(`${index + 1}. "${field}"`);
+      });
+      
+      return {
+        success: true,
+        available_fields: fields,
+        total_fields: fields.length
+      };
+    } else {
+      return {
+        success: false,
+        error: 'No records found to analyze fields'
+      };
+    }
+  } catch (error) {
+    console.error('❌ Debug fields error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
   try {
     console.log('🔧 Testing Airtable connection...');
 
@@ -353,7 +394,7 @@ module.exports = async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Action parameter is required',
-        available_actions: ['create', 'get', 'update', 'list', 'test']
+        available_actions: ['create', 'get', 'update', 'list', 'test', 'debug_fields']
       });
     }
 
@@ -395,6 +436,10 @@ module.exports = async (req, res) => {
         result = await listLeads(params);
         break;
 
+      case 'debug_fields':
+        result = await debugAirtableFields();
+        break;
+
       case 'test':
         result = await testConnection();
         break;
@@ -403,7 +448,7 @@ module.exports = async (req, res) => {
         return res.status(400).json({
           success: false,
           error: `Unknown action: ${action}`,
-          available_actions: ['create', 'get', 'update', 'list', 'test']
+          available_actions: ['create', 'get', 'update', 'list', 'test', 'debug_fields']
         });
     }
 
