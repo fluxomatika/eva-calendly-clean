@@ -1,4 +1,4 @@
-// api/main.js - Eva OAuth2 com Google Meet + DELETE COMPLETO
+// api/main.js - Eva OAuth2 com Google Meet + DEBUG RETELL AI
 module.exports = async (req, res) => {
   // ================================
   // DEBUG RETELL AI - ADICIONAR LOGS
@@ -50,10 +50,6 @@ module.exports = async (req, res) => {
         console.log('📝 Executando create_calendar_event');
         return handleCreateEvent(req, res);
 
-      case 'delete_calendar_event':
-        console.log('🗑️ Executando delete_calendar_event');
-        return handleDeleteEvent(req, res);
-
       case 'oauth_authorize':
         return handleOAuthAuthorize(req, res);
 
@@ -66,9 +62,9 @@ module.exports = async (req, res) => {
           status: 'success',
           message: 'Eva OAuth2 API funcionando!',
           timestamp: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-          actions: ['get_current_date', 'check_availability', 'suggest_alternative_times', 'create_calendar_event', 'delete_calendar_event'],
+          actions: ['get_current_date', 'check_availability', 'suggest_alternative_times', 'create_calendar_event'],
           oauth_status: process.env.GOOGLE_REFRESH_TOKEN ? 'authorized' : 'needs_authorization',
-          authorize_url: process.env.GOOGLE_REFRESH_TOKEN ? null : 'https://eva-calendly-clean.vercel.app/api/main?action=oauth_authorize',
+          authorize_url: process.env.GOOGLE_REFRESH_TOKEN ? null : 'https://eva-evolua.vercel.app/api/main?action=oauth_authorize',
           debug_info: {
             method: req.method,
             action: action,
@@ -95,7 +91,7 @@ module.exports = async (req, res) => {
 const OAUTH_CONFIG = {
   client_id: process.env.GOOGLE_CLIENT_ID || '972355840416-1sfa3tpqrm5d6dneacnanj6mhe0ae0vf.apps.googleusercontent.com',
   client_secret: process.env.GOOGLE_CLIENT_SECRET || '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',
-  redirect_uri: 'https://eva-calendly-clean.vercel.app/api/main?action=oauth_callback',
+  redirect_uri: 'https://eva-evolua.vercel.app/api/main?action=oauth_callback',
   scope: 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events'
 };
 
@@ -841,280 +837,5 @@ async function handleCreateEvent(req, res) {
       message: 'Erro ao criar evento no Google Calendar',
       error: error.message
     });
-  }
-}
-
-// TOOL 5: Delete Calendar Event
-async function handleDeleteEvent(req, res) {
-  try {
-    console.log('🗑️ === DELETE CALENDAR EVENT START ===');
-    
-    // Get parameters
-    const { event_id, reason } = req.method === 'GET' ? req.query : req.body;
-    
-    console.log('🗑️ Parameters received:', { event_id, reason });
-    
-    if (!event_id) {
-      console.log('❌ Missing event_id parameter');
-      return res.status(400).json({
-        status: 'error',
-        action: 'delete_calendar_event',
-        message: 'Parâmetro obrigatório: event_id (ID do evento no Google Calendar)'
-      });
-    }
-
-    // Get access token
-    const accessToken = await getOAuth2AccessToken();
-    const calendarId = 'primary';
-    
-    console.log(`🗑️ Attempting to delete event: ${event_id}`);
-
-    // First, get event details for confirmation/logging
-    let eventDetails = null;
-    try {
-      const eventResponse = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(event_id)}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (eventResponse.ok) {
-        eventDetails = await eventResponse.json();
-        console.log('🗑️ Event found:', eventDetails.summary, eventDetails.start?.dateTime);
-      }
-    } catch (error) {
-      console.log('🗑️ Could not fetch event details (proceeding with deletion):', error.message);
-    }
-
-    // Delete the event
-    const deleteResponse = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(event_id)}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-
-    console.log('🗑️ Delete response status:', deleteResponse.status);
-
-    if (!deleteResponse.ok) {
-      const errorData = await deleteResponse.text();
-      console.error('🗑️ Delete failed:', deleteResponse.status, errorData);
-      
-      if (deleteResponse.status === 404) {
-        return res.status(404).json({
-          status: 'error',
-          action: 'delete_calendar_event',
-          message: 'Evento não encontrado. Pode já ter sido cancelado ou o ID está incorreto.',
-          data: {
-            event_id: event_id,
-            error_code: 'EVENT_NOT_FOUND'
-          }
-        });
-      }
-      
-      if (deleteResponse.status === 410) {
-        return res.status(410).json({
-          status: 'error',
-          action: 'delete_calendar_event',
-          message: 'Evento já foi cancelado anteriormente.',
-          data: {
-            event_id: event_id,
-            error_code: 'ALREADY_DELETED'
-          }
-        });
-      }
-      
-      throw new Error(`Google Calendar Delete Error: ${deleteResponse.status} - ${errorData}`);
-    }
-
-    console.log('🗑️ Event deleted successfully!');
-
-    // Send cancellation email if we have event details
-    let emailSent = false;
-    let emailError = null;
-    
-    if (eventDetails && eventDetails.attendees) {
-      try {
-        const attendees = eventDetails.attendees.filter(attendee => 
-          attendee.email && !attendee.email.includes('@google.com') && !attendee.organizer
-        );
-        
-        for (const attendee of attendees) {
-          const emailResult = await sendCancellationEmail({
-            to: attendee.email,
-            clientName: attendee.displayName || attendee.email.split('@')[0],
-            summary: eventDetails.summary,
-            originalDate: eventDetails.start?.dateTime ? 
-              new Date(eventDetails.start.dateTime).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'N/A',
-            originalTime: eventDetails.start?.dateTime ? 
-              new Date(eventDetails.start.dateTime).toLocaleTimeString('pt-BR', { 
-                hour: '2-digit', 
-                minute: '2-digit',
-                timeZone: 'America/Sao_Paulo'
-              }) : 'N/A',
-            reason: reason || 'Cancelamento solicitado'
-          });
-          
-          if (emailResult.success) {
-            emailSent = true;
-          } else {
-            emailError = emailResult.error;
-          }
-        }
-      } catch (error) {
-        console.error('🗑️ Erro ao enviar email de cancelamento:', error);
-        emailError = error.message;
-      }
-    }
-
-    console.log('🗑️ === DELETE CALENDAR EVENT END ===');
-
-    return res.status(200).json({
-      status: 'success',
-      action: 'delete_calendar_event',
-      message: emailSent ? 
-        'Evento cancelado com sucesso e email de notificação enviado!' :
-        'Evento cancelado com sucesso! (Email de notificação não pôde ser enviado)',
-      data: {
-        event_id: event_id,
-        deleted: true,
-        deletion_time: new Date().toISOString(),
-        reason: reason || 'Cancelamento solicitado',
-        original_event: eventDetails ? {
-          summary: eventDetails.summary,
-          start_time: eventDetails.start?.dateTime,
-          end_time: eventDetails.end?.dateTime,
-          attendees_count: eventDetails.attendees?.length || 0
-        } : null,
-        email_sent: emailSent,
-        email_error: emailError
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Delete Event Error:', error);
-    return res.status(500).json({
-      status: 'error',
-      action: 'delete_calendar_event',
-      message: 'Erro ao cancelar evento no Google Calendar',
-      error: error.message
-    });
-  }
-}
-
-// FUNÇÃO DE EMAIL DE CANCELAMENTO
-async function sendCancellationEmail(emailData) {
-  try {
-    if (!process.env.RESEND_API_KEY) {
-      throw new Error('RESEND_API_KEY não configurado');
-    }
-
-    const emailHtml = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
-      <!-- Header -->
-      <div style="background: #dc2626; color: white; padding: 30px 20px; text-align: center;">
-        <h1 style="margin: 0; font-size: 28px;">❌ Reunião Cancelada</h1>
-        <p style="margin: 10px 0 0 0; opacity: 0.9;">Evolua - Soluções Digitais</p>
-      </div>
-      
-      <!-- Content -->
-      <div style="padding: 30px 20px;">
-        <p style="font-size: 18px; color: #1f2937; margin-bottom: 10px;">
-          Olá <strong>${emailData.clientName}</strong>,
-        </p>
-        
-        <p style="color: #4b5563; line-height: 1.6; margin-bottom: 30px;">
-          Infelizmente precisamos cancelar nossa reunião agendada. Pedimos desculpas pelo inconveniente.
-        </p>
-        
-        <!-- Cancellation Details Box -->
-        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 25px; margin: 25px 0;">
-          <h2 style="color: #dc2626; margin: 0 0 20px 0; font-size: 20px;">📅 Detalhes do Cancelamento</h2>
-          
-          <div style="margin: 15px 0;">
-            <strong style="color: #374151;">Reunião:</strong>
-            <span style="color: #6b7280; margin-left: 10px;">${emailData.summary}</span>
-          </div>
-          
-          <div style="margin: 15px 0;">
-            <strong style="color: #374151;">Data Original:</strong>
-            <span style="color: #6b7280; margin-left: 10px;">${emailData.originalDate}</span>
-          </div>
-          
-          <div style="margin: 15px 0;">
-            <strong style="color: #374151;">Horário Original:</strong>
-            <span style="color: #6b7280; margin-left: 10px;">${emailData.originalTime}</span>
-          </div>
-          
-          <div style="margin: 15px 0;">
-            <strong style="color: #374151;">Motivo:</strong>
-            <span style="color: #6b7280; margin-left: 10px;">${emailData.reason}</span>
-          </div>
-        </div>
-        
-        <!-- Next Steps -->
-        <div style="background: #f0f9ff; border: 1px solid #0ea5e9; border-radius: 8px; padding: 20px; margin: 25px 0;">
-          <h3 style="color: #0369a1; margin: 0 0 15px 0; font-size: 16px;">📝 Próximos Passos</h3>
-          <ul style="color: #075985; margin: 0; padding-left: 20px; line-height: 1.8;">
-            <li>Entre em contato conosco para reagendar quando for conveniente</li>
-            <li>Responda este email para sugerir novos horários</li>
-            <li>Ou acesse nosso site para agendar uma nova reunião</li>
-            <li>Pedimos desculpas pelo inconveniente causado</li>
-          </ul>
-        </div>
-        
-        <p style="color: #6b7280; line-height: 1.6; margin-top: 30px;">
-          Agradecemos sua compreensão e esperamos reagendar em breve!
-        </p>
-      </div>
-      
-      <!-- Footer -->
-      <div style="background: #f9fafb; border-top: 1px solid #e5e7eb; padding: 20px; text-align: center;">
-        <p style="color: #6b7280; margin: 0; font-size: 14px;">
-          Atenciosamente,<br>
-          <strong style="color: #374151;">Equipe Evolua</strong>
-        </p>
-        <p style="color: #9ca3af; margin: 10px 0 0 0; font-size: 12px;">
-          Este email foi enviado automaticamente pela Eva, nossa assistente virtual.
-        </p>
-      </div>
-    </div>
-    `;
-
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: 'Eva <onboarding@resend.dev>',
-        to: emailData.to,
-        subject: `Reunião cancelada - ${emailData.originalDate} às ${emailData.originalTime}`,
-        html: emailHtml
-      })
-    });
-
-    const emailResult = await response.json();
-    
-    if (!response.ok) {
-      throw new Error(`Resend API Error: ${response.status} - ${JSON.stringify(emailResult)}`);
-    }
-
-    console.log('✅ Email de cancelamento enviado com sucesso:', emailResult);
-    return { success: true, data: emailResult };
-
-  } catch (error) {
-    console.error('❌ Erro ao enviar email de cancelamento:', error);
-    return { success: false, error: error.message };
   }
 }
