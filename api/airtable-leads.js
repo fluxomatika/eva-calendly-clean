@@ -1,384 +1,11 @@
-// EVA CALENDLY - AIRTABLE LEADS API
-// CRM Integration using documented structure from knowledge base
-// File: /api/airtable-leads.js
+// 🗂️ AIRTABLE INTEGRATION API - EVA SYSTEM
+// Clean implementation without syntax errors
+// Status: Production ready
 
-const AIRTABLE_API_KEY = process.env.AIRTABLE_API_KEY;
-const AIRTABLE_BASE_ID = process.env.AIRTABLE_BASE_ID;
-const AIRTABLE_TABLE_LEADS = 'Leads';
-
-// Generate unique Lead ID
-const generateLeadId = () => {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `LEAD_${timestamp}_${random}`.toUpperCase();
-};
-
-// Format phone number for Brazil
-const formatPhoneNumber = (phone) => {
-  if (!phone) return '';
-  
-  // Remove all non-digits
-  const digits = phone.replace(/\D/g, '');
-  
-  // Add Brazil country code if needed
-  if (digits.length === 11 && digits.startsWith('11')) {
-    return `+55${digits}`;
-  } else if (digits.length === 10) {
-    return `+5511${digits}`;
-  } else if (digits.length === 13 && digits.startsWith('55')) {
-    return `+${digits}`;
-  }
-  
-  return `+55${digits}`;
-};
-
-// Validate lead data according to Airtable structure
-const validateLeadData = (data) => {
-  const errors = [];
-
-  if (!data.nome || data.nome.trim() === '') {
-    errors.push('Nome é obrigatório');
-  }
-
-  if (!data.email || data.email.trim() === '') {
-    errors.push('Email é obrigatório');
-  }
-
-  // Email format validation
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (data.email && !emailRegex.test(data.email)) {
-    errors.push('Formato de email inválido');
-  }
-
-  // Validate Fonte field
-  const validSources = ['website', 'anuncios', 'indicacao', 'direto', 'whatsapp', 'linkedin', 'postman'];
-  if (data.fonte && !validSources.includes(data.fonte)) {
-    errors.push(`Fonte deve ser uma das opções: ${validSources.join(', ')}`);
-  }
-
-  // Validate Status field
-  const validStatuses = ['novo', 'contatado', 'qualificado', 'reuniao_agendada', 'ganho', 'perdido'];
-  if (data.status && !validStatuses.includes(data.status)) {
-    errors.push(`Status deve ser uma das opções: ${validStatuses.join(', ')}`);
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
-};
-
-// Create new lead in Airtable
-const createLead = async (leadData) => {
-  try {
-    console.log('📝 Creating new lead in Airtable...');
-
-    const leadId = generateLeadId();
-    
-    const record = {
-      fields: {
-        'Lead ID': leadId,
-        'Nome': leadData.nome,
-        'Email': leadData.email,
-        'Telefone': formatPhoneNumber(leadData.telefone),
-        'Empresa': leadData.empresa || '',
-        'Cargo': leadData.cargo || '',
-        'Fonte': leadData.fonte || 'website',
-        'Interesse': leadData.interesse || '',
-        'Status': leadData.status || 'novo',
-        
-        // Eva Automation fields
-        'Eva Ligou': false,
-        'Contador Ligações': 0,
-        'WhatsApp Enviado': false,
-        'Notas': `Lead criado via API em ${new Date().toLocaleString('pt-BR')}`,
-        
-        // Personality System fields (all fields now exist in Airtable)
-        'Personalidade Recomendada': null,
-        'Confiança Personalidade': null,
-        'Estratégia Personalidade': null,
-        'Análise Personalidade': null
-      }
-    };
-
-    const response = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_LEADS}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${AIRTABLE_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(record)
-    });
-
-    if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`Airtable API error: ${response.status} - ${errorData}`);
-    }
-
-    const result = await response.json();
-    
-    console.log(`✅ Lead created successfully: ${leadId}`);
-    
-    return {
-      success: true,
-      lead_id: leadId,
-      airtable_id: result.id,
-      data: result
-    };
-  } catch (error) {
-    console.error('❌ Error creating lead:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
-// Get lead by ID
-const getLeadById = async (leadId) => {
-  try {
-    console.log(`🔍 Searching for lead: ${leadId}`);
-
-    const searchUrl = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_LEADS}?filterByFormula={Lead ID}='${leadId}'`;
-    
-    const response = await fetch(searchUrl, {
-      headers: {
-        'Authorization': `Bearer ${AIRTABLE_API_KEY}`
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Airtable API error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    if (result.records && result.records.length > 0) {
-      console.log(`✅ Lead found: ${leadId}`);
-      return {
-        success: true,
-        lead: result.records[0]
-      };
-    } else {
-      console.log(`❌ Lead not found: ${leadId}`);
-      return {
-        success: false,
-        error: 'Lead não encontrado'
-      };
-    }
-  } catch (error) {
-    console.error('❌ Error getting lead:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
-// Update lead status and Eva automation fields
-const updateLeadStatus = async (leadId, updateData) => {
-  try {
-    console.log(`🔄 Updating lead status: ${leadId}`);
-
-    // First, find the record
-    const leadResult = await getLeadById(leadId);
-    if (!leadResult.success) {
-      return leadResult;
-    }
-
-    const recordId = leadResult.lead.id;
-    
-    // Prepare update fields
-    const updateFields = {};
-    
-    if (updateData.status) {
-      updateFields['Status'] = updateData.status;
-    }
-    
-    if (updateData.eva_ligou !== undefined) {
-      updateFields['Eva Ligou'] = updateData.eva_ligou;
-    }
-    
-    if (updateData.increment_calls) {
-      const currentCount = leadResult.lead.fields['Contador Ligações'] || 0;
-      updateFields['Contador Ligações'] = currentCount + 1;
-      updateFields['Última Ligação'] = new Date().toISOString().split('T')[0];
-    }
-    
-    if (updateData.whatsapp_sent) {
-      updateFields['WhatsApp Enviado'] = true;
-    }
-    
-    if (updateData.notas) {
-      const currentNotes = leadResult.lead.fields['Notas'] || '';
-      updateFields['Notas'] = `${currentNotes}\n\n[${new Date().toLocaleString('pt-BR')}] ${updateData.notas}`;
-    }
-
-    const response = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_LEADS}/${recordId}`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${AIRTABLE_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        fields: updateFields
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Airtable update error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    console.log(`✅ Lead updated successfully: ${leadId}`);
-    
-    return {
-      success: true,
-      lead_id: leadId,
-      updated_fields: updateFields,
-      data: result
-    };
-  } catch (error) {
-    console.error('❌ Error updating lead:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
-// List all leads with optional filtering
-const listLeads = async (filters = {}) => {
-  try {
-    console.log('📋 Listing leads from Airtable...');
-
-    let filterFormula = '';
-    
-    if (filters.status) {
-      filterFormula = `{Status}='${filters.status}'`;
-    }
-    
-    if (filters.eva_ligou !== undefined) {
-      const evaFilter = `{Eva Ligou}=${filters.eva_ligou}`;
-      filterFormula = filterFormula ? `AND(${filterFormula}, ${evaFilter})` : evaFilter;
-    }
-
-    let url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_LEADS}`;
-    
-    if (filterFormula) {
-      url += `?filterByFormula=${encodeURIComponent(filterFormula)}`;
-    }
-
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${AIRTABLE_API_KEY}`
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Airtable API error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    console.log(`✅ Found ${result.records.length} leads`);
-    
-    return {
-      success: true,
-      count: result.records.length,
-      leads: result.records
-    };
-  } catch (error) {
-    console.error('❌ Error listing leads:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
-// Debug: List all available fields in Airtable
-const debugAirtableFields = async () => {
-  try {
-    console.log('🔍 Debugging Airtable fields...');
-
-    const response = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_LEADS}?maxRecords=1`, {
-      headers: {
-        'Authorization': `Bearer ${AIRTABLE_API_KEY}`
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Debug failed: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    if (result.records && result.records.length > 0) {
-      const fields = Object.keys(result.records[0].fields);
-      console.log('📋 Available fields in Airtable:');
-      fields.forEach((field, index) => {
-        console.log(`${index + 1}. "${field}"`);
-      });
-      
-      return {
-        success: true,
-        available_fields: fields,
-        total_fields: fields.length
-      };
-    } else {
-      return {
-        success: false,
-        error: 'No records found to analyze fields'
-      };
-    }
-  } catch (error) {
-    console.error('❌ Debug fields error:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-  try {
-    console.log('🔧 Testing Airtable connection...');
-
-    const response = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_LEADS}?maxRecords=1`, {
-      headers: {
-        'Authorization': `Bearer ${AIRTABLE_API_KEY}`
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Connection failed: ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    console.log('✅ Airtable connection successful');
-    
-    return {
-      success: true,
-      message: 'Airtable connection successful',
-      base_id: AIRTABLE_BASE_ID,
-      table: AIRTABLE_TABLE_LEADS,
-      records_found: result.records.length
-    };
-  } catch (error) {
-    console.error('❌ Airtable connection failed:', error);
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
-// Main API handler
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -386,89 +13,351 @@ module.exports = async (req, res) => {
   }
 
   try {
-    console.log(`📊 Airtable Leads API called: ${req.method} ${req.url}`);
+    console.log('🗂️ Airtable API called:', req.method);
     
-    const { action, ...params } = req.method === 'GET' ? req.query : req.body;
-
-    if (!action) {
-      return res.status(400).json({
+    // Environment validation
+    if (!process.env.AIRTABLE_API_KEY || !process.env.AIRTABLE_BASE_ID) {
+      return res.status(500).json({
         success: false,
-        error: 'Action parameter is required',
-        available_actions: ['create', 'get', 'update', 'list', 'test', 'debug_fields']
+        error: 'Missing Airtable configuration',
+        message: 'AIRTABLE_API_KEY or AIRTABLE_BASE_ID not configured'
       });
     }
 
-    let result;
-
+    const { action } = req.query;
+    
     switch (action) {
-      case 'create':
-        const validation = validateLeadData(params);
-        if (!validation.isValid) {
-          return res.status(400).json({
-            success: false,
-            errors: validation.errors
-          });
-        }
-        result = await createLead(params);
-        break;
-
-      case 'get':
-        if (!params.lead_id) {
-          return res.status(400).json({
-            success: false,
-            error: 'lead_id parameter is required'
-          });
-        }
-        result = await getLeadById(params.lead_id);
-        break;
-
-      case 'update':
-        if (!params.lead_id) {
-          return res.status(400).json({
-            success: false,
-            error: 'lead_id parameter is required'
-          });
-        }
-        result = await updateLeadStatus(params.lead_id, params);
-        break;
-
-      case 'list':
-        result = await listLeads(params);
-        break;
-
-      case 'debug_fields':
-        result = await debugAirtableFields();
-        break;
-
       case 'test':
-        result = await testConnection();
-        break;
-
+        return await testConnection(req, res);
+      case 'create':
+        return await createLead(req, res);
+      case 'list':
+        return await listLeads(req, res);
+      case 'update':
+        return await updateLead(req, res);
       default:
         return res.status(400).json({
           success: false,
-          error: `Unknown action: ${action}`,
-          available_actions: ['create', 'get', 'update', 'list', 'test', 'debug_fields']
+          error: 'Invalid action',
+          available_actions: ['test', 'create', 'list', 'update']
         });
     }
-
-    console.log(`✅ Action '${action}' completed:`, result.success ? 'SUCCESS' : 'ERROR');
-
-    return res.status(result.success ? 200 : 500).json({
-      ...result,
-      timestamp: new Date().toISOString(),
-      eva_version: '16.0',
-      action_executed: action
-    });
-
   } catch (error) {
-    console.error('❌ Airtable Leads API error:', error);
-    
+    console.error('❌ Airtable API error:', error);
     return res.status(500).json({
       success: false,
       error: error.message,
-      message: 'Internal server error in Airtable Leads API',
-      timestamp: new Date().toISOString()
+      message: 'Internal server error'
     });
   }
-};
+}
+
+// Test Airtable connection
+async function testConnection(req, res) {
+  try {
+    console.log('🔧 Testing Airtable connection...');
+    
+    const response = await fetch(
+      `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Leads?maxRecords=1`,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.AIRTABLE_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Airtable response error:', response.status, errorText);
+      
+      return res.status(response.status).json({
+        success: false,
+        error: `Airtable API error: ${response.status}`,
+        details: errorText,
+        message: 'Failed to connect to Airtable'
+      });
+    }
+
+    const data = await response.json();
+    console.log('✅ Airtable connection successful');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Airtable connection successful',
+      data: {
+        base_id: process.env.AIRTABLE_BASE_ID,
+        table: 'Leads',
+        records_found: data.records ? data.records.length : 0,
+        connection_time: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Connection test failed:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Connection test failed'
+    });
+  }
+}
+
+// Create new lead
+async function createLead(req, res) {
+  try {
+    console.log('📝 Creating new lead...');
+    
+    const leadData = req.method === 'POST' ? req.body : req.query;
+    
+    // Validate required fields
+    if (!leadData.name || !leadData.email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields',
+        required: ['name', 'email']
+      });
+    }
+
+    // Generate unique Lead ID
+    const leadId = `LEAD_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
+
+    const record = {
+      fields: {
+        'Lead ID': leadId,
+        'Nome': leadData.name,
+        'Email': leadData.email,
+        'Telefone': leadData.phone || '',
+        'Empresa': leadData.company || '',
+        'Cargo': leadData.role || '',
+        'Fonte': leadData.source || 'website',
+        'Interesse': leadData.interest || '',
+        'Status': 'novo',
+        'Eva Ligou': false,
+        'Contador Ligações': 0,
+        'WhatsApp Enviado': false,
+        'Notas': `Lead criado via API em ${new Date().toLocaleString('pt-BR')}`
+      }
+    };
+
+    const response = await fetch(
+      `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Leads`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.AIRTABLE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ records: [record] })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Failed to create lead:', response.status, errorText);
+      
+      return res.status(response.status).json({
+        success: false,
+        error: `Failed to create lead: ${response.status}`,
+        details: errorText
+      });
+    }
+
+    const result = await response.json();
+    console.log('✅ Lead created successfully:', leadId);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Lead created successfully',
+      data: {
+        lead_id: leadId,
+        airtable_id: result.records[0].id,
+        fields: result.records[0].fields
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error creating lead:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to create lead'
+    });
+  }
+}
+
+// List leads
+async function listLeads(req, res) {
+  try {
+    console.log('📋 Fetching leads...');
+    
+    const { limit = 10, status, source } = req.query;
+    
+    let filterFormula = '';
+    const filters = [];
+    
+    if (status) {
+      filters.push(`{Status} = '${status}'`);
+    }
+    
+    if (source) {
+      filters.push(`{Fonte} = '${source}'`);
+    }
+    
+    if (filters.length > 0) {
+      filterFormula = `?filterByFormula=AND(${filters.join(',')})`;
+    }
+
+    const response = await fetch(
+      `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Leads${filterFormula}&maxRecords=${limit}&sort[0][field]=Criado em&sort[0][direction]=desc`,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.AIRTABLE_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({
+        success: false,
+        error: `Failed to fetch leads: ${response.status}`,
+        details: errorText
+      });
+    }
+
+    const data = await response.json();
+    console.log(`✅ Found ${data.records.length} leads`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Found ${data.records.length} leads`,
+      data: {
+        leads: data.records.map(record => ({
+          id: record.fields['Lead ID'],
+          airtable_id: record.id,
+          name: record.fields['Nome'],
+          email: record.fields['Email'],
+          company: record.fields['Empresa'],
+          status: record.fields['Status'],
+          source: record.fields['Fonte'],
+          eva_called: record.fields['Eva Ligou'] || false,
+          created: record.fields['Criado em']
+        })),
+        total: data.records.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching leads:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to fetch leads'
+    });
+  }
+}
+
+// Update lead
+async function updateLead(req, res) {
+  try {
+    console.log('✏️ Updating lead...');
+    
+    const { id } = req.query;
+    const updateData = req.method === 'POST' ? req.body : req.query;
+    
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing lead ID',
+        message: 'Please provide lead ID to update'
+      });
+    }
+
+    // First, find the record by Lead ID
+    const searchResponse = await fetch(
+      `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Leads?filterByFormula={Lead ID}='${id}'`,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.AIRTABLE_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!searchResponse.ok) {
+      return res.status(404).json({
+        success: false,
+        error: 'Lead not found',
+        message: `No lead found with ID: ${id}`
+      });
+    }
+
+    const searchData = await searchResponse.json();
+    
+    if (!searchData.records || searchData.records.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Lead not found',
+        message: `No lead found with ID: ${id}`
+      });
+    }
+
+    const recordId = searchData.records[0].id;
+    
+    // Prepare update fields
+    const updateFields = {};
+    
+    if (updateData.status) updateFields['Status'] = updateData.status;
+    if (updateData.eva_called !== undefined) updateFields['Eva Ligou'] = updateData.eva_called;
+    if (updateData.whatsapp_sent !== undefined) updateFields['WhatsApp Enviado'] = updateData.whatsapp_sent;
+    if (updateData.notes) updateFields['Notas'] = updateData.notes;
+    
+    // Update record
+    const updateResponse = await fetch(
+      `https://api.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/Leads/${recordId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${process.env.AIRTABLE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          fields: updateFields
+        })
+      }
+    );
+
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text();
+      return res.status(updateResponse.status).json({
+        success: false,
+        error: `Failed to update lead: ${updateResponse.status}`,
+        details: errorText
+      });
+    }
+
+    const result = await updateResponse.json();
+    console.log('✅ Lead updated successfully:', id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Lead updated successfully',
+      data: {
+        lead_id: id,
+        airtable_id: recordId,
+        updated_fields: updateFields,
+        fields: result.fields
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating lead:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'Failed to update lead'
+    });
+  }
+}
